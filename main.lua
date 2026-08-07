@@ -1,0 +1,81 @@
+-- Gen1MMO entry point.
+--
+-- Wires the client orchestrator into the engine: a per-frame network pump, our
+-- movement broadcast, remote-player pass-through, and the Start-menu screen.
+-- All confirmed mod-API surfaces (Reference-Mod-Object / Reference-Hooks).
+
+local mod = ...
+
+-- Module loader: mods are single-entry, so we load our own files via mod:read
+-- + load(), caching each as a singleton. Exposed as a global so submodules can
+-- pull their own dependencies the same way.
+local _cache = {}
+function GEN1MMO_INCLUDE(path)
+  if _cache[path] then return _cache[path] end
+  local src, err = mod:read(path)
+  if not src then error("gen1mmo: cannot read " .. path .. ": " .. tostring(err)) end
+  local chunk = assert(load(src, "@gen1mmo/" .. path))
+  local result = chunk()
+  _cache[path] = result
+  return result
+end
+
+local Client = GEN1MMO_INCLUDE("src/client.lua")
+local installScreen = GEN1MMO_INCLUDE("src/screens.lua")
+
+local client = Client.new(mod)
+
+-- Persisted server address (no infrastructure baked into the public mod; the
+-- player points it at a server). Default is localhost for self-hosting/testing.
+client.host = mod.save:get("server_host", "127.0.0.1")
+client.port = mod.save:get("server_port", 7878)
+function client:setServer(host, port)
+  self.host = host
+  self.port = tonumber(port) or 7878
+  mod.save:set("server_host", self.host)
+  mod.save:set("server_port", self.port)
+end
+
+installScreen(mod, client)
+
+-- Start-menu row that opens Gen1MMO.
+mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
+  pcall(function()
+    mod.ui.insertBefore(items, "OPTION", {
+      label = "GEN1MMO",
+      onSelect = function() mod.ui.push(game, "Gen1MMO") end,
+    })
+  end)
+  return next(game, items)
+end)
+
+-- Per-frame pump: render.zones runs every overworld frame. We do the network
+-- pump here and pass the zones through untouched.
+mod.hooks:wrap("render.zones", function(next, game, zones)
+  client:pump()
+  return next(game, zones)
+end)
+
+-- Broadcast our own steps.
+mod.events:on("world.stepped", function(e)
+  client:onStep(e.mapId, e.x, e.y)
+end)
+
+-- Track map changes (resyncs the roster for the new room).
+mod.events:on("map.entered", function(e)
+  client:onMap(e.mapId)
+end)
+
+-- Never block on another player: a remote trainer stands only on a walkable
+-- tile (they walked there), so allowing movement into an occupied tile is safe.
+mod.hooks:wrap("movement.collision", function(next, allowed, ctx)
+  allowed = next(allowed, ctx)
+  if ctx and ctx.toX and ctx.toY then
+    for _, r in pairs(client.players.remote) do
+      if r.x == ctx.toX and r.y == ctx.toY then return true end
+    end
+  end
+  return allowed
+end)
+
+return client -- exported for other mods / debugging
