@@ -44,13 +44,21 @@ function Players:_spawn(name, x, y, dir, skin)
     -- movement omitted => STAY: we drive position from the network, no wander.
   }
   -- Best look first (tone-variant sheet), degrading toward the sprite every
-  -- cache carries: a look must never make a player invisible.
+  -- cache carries: a look must never make a player invisible. Sheets load
+  -- lazily at draw time, so force the load here -- a candidate whose
+  -- derived PNG is missing must be skipped NOW, not explode mid-frame.
   for _, spriteId in ipairs(Skins.spriteCandidates(skin)) do
-    objDef.sprite = spriteId
-    local ok, npcId = pcall(function() return self.mod.world:spawnNpc(self.mapId, objDef) end)
-    if ok and npcId then
-      self.remote[name] = { npcId = npcId, x = x, y = y, dir = dir, skin = skin }
-      return
+    local usable = pcall(function()
+      local Game = require("src.core.Game")
+      require("src.render.Assets").image(Game.data.sprites[spriteId].image)
+    end)
+    if usable then
+      objDef.sprite = spriteId
+      local ok, npcId = pcall(function() return self.mod.world:spawnNpc(self.mapId, objDef) end)
+      if ok and npcId then
+        self.remote[name] = { npcId = npcId, x = x, y = y, dir = dir, skin = skin }
+        return
+      end
     end
   end
 end

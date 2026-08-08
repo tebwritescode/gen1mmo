@@ -49,22 +49,29 @@ end
 --- wanted sheet changed. All engine reaches are pcall'd: cosmetics must
 --- never take the game down.
 function Client:applyOwnSprite()
-  pcall(function()
+  local ok, err = pcall(function()
     local Game = require("src.core.Game")
     local ow = Game.overworld
     if not (ow and ow.player) then return end
     for _, id in ipairs(Skins.spriteCandidates(self.skin)) do
       local def = Game.data.sprites[id]
-      if def then
+      -- Force the sheet to load NOW: sprite images load lazily at draw
+      -- time, so a registered tone variant whose derived PNG is absent
+      -- (transform skipped, no import) must fall through to the next
+      -- candidate here -- not blow up mid-frame later.
+      if def and pcall(function() require("src.render.Assets").image(def.image) end) then
         if self._ownSpriteId ~= id then
           local SR = require("src.render.SpriteRenderer")
           ow.player.sprite = SR.new(def, "player")
           self._ownSpriteId = id
+          self:log("Look: " .. id)
         end
         return
       end
     end
+    self:log("Look: no usable sheet")
   end)
+  if not ok then self:log("Look failed: " .. tostring(err)) end
 end
 
 --- Ask for the public server stats (server-info screen). GATED on the

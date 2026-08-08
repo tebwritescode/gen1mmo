@@ -88,6 +88,14 @@ installScreen(mod, client)
 Overlay.install(mod, client)
 Nametags.install(mod, client)
 
+-- Surface the tone-sheet derivation result in the chat log: "Skin
+-- sheets: 16" is healthy; 0 means the transform found no cache to read
+-- (report it -- tones then fall back to plain RED/BLUE).
+mod.events:on("assets.transformed", function(ev)
+  if ev.modId ~= mod.id then return end
+  client:log("Skin sheets: " .. tostring(ev.count or 0))
+end)
+
 -- A-press on a remote player: the engine resolves the interaction to our
 -- spawned NPC (def.name "g1mmo:<name>"); open the player action menu.
 mod.events:on("world.interacted", function(ev)

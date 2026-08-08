@@ -16,7 +16,7 @@ function Nametags.install(mod, client)
   mod.hooks:wrap("render.hud", function(next, game, vp)
     next(game, vp)
     if broken or client.state ~= "playing" then return end
-    local ok = pcall(function()
+    local ok, err = pcall(function()
       local Game = require("src.core.Game")
       local ow = Game.overworld
       -- only over a live, visible overworld: menus/battles own the screen
@@ -66,7 +66,11 @@ function Nametags.install(mod, client)
       lg.setColor(1, 1, 1, 1)
       if prevFont then lg.setFont(prevFont) end
     end)
-    if not ok then broken = true end -- never take a frame down
+    if not ok then
+      broken = true -- never take a frame down
+      -- surface WHY in the chat log so a device report can quote it
+      pcall(function() client:log("Tags off: " .. tostring(err)) end)
+    end
   end)
 end
 
