@@ -108,6 +108,7 @@ function Client:_finishRegister(powId, powNonce)
   local clientSalt = Crypto.randomHex(16)
   local verifier = Crypto.verifier(self.creds.password, clientSalt)
   self.creds.password = nil -- discarded the moment the verifier exists
+  self._pendingAuth = { name = self.creds.name, verifier = verifier }
   self.net:send({
     type = "register", name = self.creds.name,
     clientSalt = clientSalt, verifier = verifier,
@@ -117,10 +118,37 @@ function Client:_finishRegister(powId, powNonce)
 end
 
 function Client:_finishLogin(saltHex)
+  -- Stored-credential path: reuse the derived verifier (the password itself
+  -- is never kept anywhere; the client salt is stable per account, so the
+  -- verifier is too).
+  if self.intent == "login_stored" then
+    local v = self.mod.save:get("auth_verifier", nil)
+    self._pendingAuth = { name = self.creds.name, verifier = v }
+    self.net:send({ type = "login", name = self.creds.name, verifier = v })
+    self.status = "Signing in..."
+    return
+  end
   local verifier = Crypto.verifier(self.creds.password, saltHex)
   self.creds.password = nil
+  self._pendingAuth = { name = self.creds.name, verifier = verifier }
   self.net:send({ type = "login", name = self.creds.name, verifier = verifier })
   self.status = "Signing in..."
+end
+
+--- Reconnect with credentials remembered from a previous session. Sends the
+--- STORED verifier: no password ever touches the disk.
+function Client:connectStored(host, port)
+  local name = self.mod.save:get("auth_name", nil)
+  if not name or not self.mod.save:get("auth_verifier", nil) then return false end
+  local started = self:connect(host, port, "login_stored", name, "")
+  return started
+end
+
+function Client:forgetLogin()
+  pcall(function()
+    self.mod.save:set("auth_name", nil)
+    self.mod.save:set("auth_verifier", nil)
+  end)
 end
 
 -- ---------------------------------------------------------------- actions
@@ -315,6 +343,15 @@ function Client:_dispatch(m)
   elseif t == "welcome" then
     self.state = "playing"
     self.name = m.name
+    -- Remember the DERIVED verifier for auto-connect next session (never
+    -- the password). "Forget login" in the menu clears it.
+    if self._pendingAuth and self._pendingAuth.verifier then
+      pcall(function()
+        self.mod.save:set("auth_name", self._pendingAuth.name)
+        self.mod.save:set("auth_verifier", self._pendingAuth.verifier)
+      end)
+    end
+    self._pendingAuth = nil
     self.channel = m.channel or 0
     self.channels = m.channels or 1
     self.status = "Online as " .. tostring(m.name)
@@ -365,6 +402,12 @@ function Client:_dispatch(m)
     if m.y then self.y = m.y end
   elseif t == "error" then
     self.lastError = m.code
+    -- Stored credentials that stop working (password changed elsewhere)
+    -- must not retry forever.
+    if self.intent == "login_stored" and self.state == "authing" then
+      self:forgetLogin()
+      self.status = "Saved login expired - log in again"
+    end
     self:log("! " .. tostring(m.code) .. (m.reason and (" (" .. m.reason .. ")") or ""))
   elseif t == "kick" then
     self.status = "Kicked: " .. tostring(m.reason)

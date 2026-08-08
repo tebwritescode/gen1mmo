@@ -22,9 +22,11 @@ end
 
 local Client = GEN1MMO_INCLUDE("src/client.lua")
 local installScreen = GEN1MMO_INCLUDE("src/screens.lua")
-local installBootMenu = GEN1MMO_INCLUDE("src/bootmenu.lua")
+local Overlay = GEN1MMO_INCLUDE("src/overlay.lua")
 
 local client = Client.new(mod)
+client.overlayOn = mod.save:get("chat_overlay", true)
+client.autoConnect = mod.save:get("auto_connect", true)
 
 -- Persisted server address (no infrastructure baked into the public mod; the
 -- player points it at a server). Default is localhost for self-hosting/testing.
@@ -52,71 +54,55 @@ do
 end
 
 installScreen(mod, client)
-installBootMenu(mod, client)
+Overlay.install(mod, client)
 
--- Start-menu row that opens Gen1MMO -- ONLINE sessions only. A NEW GAME /
--- CONTINUE session is normal single-player Pokemon: no row, no networking,
--- no remote players. The ONLINE title entry is the only door into the MMO.
-mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
-  pcall(function()
-    if client.online then
-      mod.ui.insertBefore(items, "OPTION", {
-        label = "GEN1MMO",
-        onSelect = function() mod.ui.push(game, "Gen1MMO") end,
-      })
-    end
-  end)
-  return next(game, items)
+-- Auto-connect: once someone has logged in before, later sessions go online
+-- on their own as soon as the world is up (stored verifier, never the
+-- password). One attempt per session; Disconnect / Forget login in the menu.
+local triedAutoConnect = false
+mod.events:on("map.entered", function()
+  if triedAutoConnect or not client.autoConnect then return end
+  triedAutoConnect = true
+  if client.state == "offline" then
+    client:connectStored(client.host, client.port)
+  end
 end)
 
--- ONLINE on the TITLE menu (before any game exists): auth with the server
--- right there, then continue or start the SERVER-SIDE character. The vanilla
--- NEW GAME action is captured from the items so online play boots through
--- the engine's own fresh-game path -- local saves are never loaded.
-mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
+-- Start-menu row that opens Gen1MMO: this release ships the classic overlay
+-- (play normally, connect from this menu, see other trainers in your world).
+-- The dedicated ONLINE title-menu mode with server-side characters lives on
+-- the `online-mode` branch for a later release.
+mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
   pcall(function()
-    local newGameAction = nil
-    for _, it in ipairs(items) do
-      if tostring(it.label) == "NEW GAME" then newGameAction = it.onSelect end
-    end
     mod.ui.insertBefore(items, "OPTION", {
-      label = "ONLINE",
-      onSelect = function()
-        mod.ui.push(game, "Gen1MMOOnline", newGameAction)
-      end,
+      label = "GEN1MMO",
+      onSelect = function() mod.ui.push(game, "Gen1MMO") end,
     })
   end)
   return next(game, items)
 end)
 
--- Per-frame pump: render.zones runs every overworld frame. ONLINE only:
--- a single-player session never touches the socket.
+-- Per-frame pump: render.zones runs every overworld frame. We do the network
+-- pump here and pass the zones through untouched.
 mod.hooks:wrap("render.zones", function(next, game, zones)
-  if client.online then client:pump() end
+  client:pump()
   return next(game, zones)
 end)
 
--- Broadcast our own steps (ONLINE). A session that authenticated in the
--- ONLINE menu but then backed out into single player is hung up on the
--- first step: no MMO leakage into a vanilla game.
+-- Broadcast our own steps.
 mod.events:on("world.stepped", function(e)
-  if not client.online then
-    if client.state ~= "offline" then client:disconnect() end
-    return
-  end
   client:onStep(e.mapId, e.x, e.y)
 end)
 
 -- Track map changes (resyncs the roster for the new room).
 mod.events:on("map.entered", function(e)
-  if client.online then client:onMap(e.mapId) end
+  client:onMap(e.mapId)
 end)
 
 -- Never block on another player: a remote trainer stands only on a walkable
 -- tile (they walked there), so allowing movement into an occupied tile is safe.
 mod.hooks:wrap("movement.collision", function(next, allowed, ctx)
   allowed = next(allowed, ctx)
-  if not client.online then return allowed end
   if ctx and ctx.toX and ctx.toY then
     for _, r in pairs(client.players.remote) do
       if r.x == ctx.toX and r.y == ctx.toY then return true end

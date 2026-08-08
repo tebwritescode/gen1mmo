@@ -59,6 +59,10 @@ return function(mod, client)
             { "Next channel", function()
               client:joinChannel((client.channel + 1) % math.max(1, client.channels))
             end },
+            { "Overlay: " .. (client.overlayOn and "ON" or "OFF"), function()
+              client.overlayOn = not client.overlayOn
+              mod.save:set("chat_overlay", client.overlayOn)
+            end },
             { "Disconnect", function() client:disconnect() end },
           }
         else
@@ -81,6 +85,14 @@ return function(mod, client)
               self:enterText("HOST:", false, function(h)
                 if #h > 0 then client:setServer(h, client.port) end
               end)
+            end },
+            { "Auto-connect: " .. (client.autoConnect and "ON" or "OFF"), function()
+              client.autoConnect = not client.autoConnect
+              mod.save:set("auto_connect", client.autoConnect)
+            end },
+            { "Forget login", function()
+              client:forgetLogin()
+              client.status = "Saved login cleared"
             end },
           }
         end
