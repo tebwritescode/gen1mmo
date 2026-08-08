@@ -21,6 +21,10 @@ function Players.new(mod)
     mapId = nil,
     -- name -> { npcId, x, y, dir, skin }
     remote = {},
+    -- name -> last known skin. Survives despawns: a failed respawn (the
+    -- engine can refuse a spawn mid-frame) is healed by the next movement
+    -- update, and that path must not lose the player's look.
+    skins = {},
   }, Players)
 end
 
@@ -34,6 +38,8 @@ end
 
 --- Spawn (or replace) a remote trainer at a tile.
 function Players:_spawn(name, x, y, dir, skin)
+  skin = skin or self.skins[name]
+  if skin then self.skins[name] = skin end
   self:_despawn(name)
   local objDef = {
     sprite = spriteFor(skin),
@@ -43,6 +49,13 @@ function Players:_spawn(name, x, y, dir, skin)
     -- movement omitted => STAY: we drive position from the network, no wander.
   }
   local ok, npcId = pcall(function() return self.mod.world:spawnNpc(self.mapId, objDef) end)
+  if not (ok and npcId) then
+    -- Never let a look make a player invisible: an unregistered sprite id
+    -- (engine version drift, modded sprite sets) falls back to the sprite
+    -- every cache carries.
+    objDef.sprite = "SPRITE_RED"
+    ok, npcId = pcall(function() return self.mod.world:spawnNpc(self.mapId, objDef) end)
+  end
   if ok and npcId then
     self.remote[name] = { npcId = npcId, x = x, y = y, dir = dir, skin = skin }
   end
@@ -100,6 +113,7 @@ function Players:move(name, x, y, dir)
 end
 
 function Players:setSkin(name, skin)
+  self.skins[name] = skin
   local r = self.remote[name]
   if not r then return end
   -- Re-sprite only if the body (and thus base sprite) changed; otherwise the

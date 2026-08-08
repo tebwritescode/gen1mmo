@@ -42,10 +42,12 @@ end
 
 --- Overworld sprite id for a skin. Built-in engine sprites for the beta so no
 --- art needs to ship; body type gives a visible distinction today.
+--- (Verified against the Red cache's sprites registry: SPRITE_RED and
+--- SPRITE_BLUE exist; the once-assumed SPRITE_HERO does not.)
 function Skins.overworldSprite(skin)
   skin = skin or Skins.DEFAULT
   local body = tonumber(skin.body) or 0
-  if body == 1 then return "SPRITE_HERO" end
+  if body == 1 then return "SPRITE_BLUE" end
   return "SPRITE_RED"
 end
 

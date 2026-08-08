@@ -54,13 +54,17 @@ end
 installScreen(mod, client)
 installBootMenu(mod, client)
 
--- Start-menu row that opens Gen1MMO.
+-- Start-menu row that opens Gen1MMO -- ONLINE sessions only. A NEW GAME /
+-- CONTINUE session is normal single-player Pokemon: no row, no networking,
+-- no remote players. The ONLINE title entry is the only door into the MMO.
 mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
   pcall(function()
-    mod.ui.insertBefore(items, "OPTION", {
-      label = "GEN1MMO",
-      onSelect = function() mod.ui.push(game, "Gen1MMO") end,
-    })
+    if client.online then
+      mod.ui.insertBefore(items, "OPTION", {
+        label = "GEN1MMO",
+        onSelect = function() mod.ui.push(game, "Gen1MMO") end,
+      })
+    end
   end)
   return next(game, items)
 end)
@@ -85,27 +89,34 @@ mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
   return next(game, items)
 end)
 
--- Per-frame pump: render.zones runs every overworld frame. We do the network
--- pump here and pass the zones through untouched.
+-- Per-frame pump: render.zones runs every overworld frame. ONLINE only:
+-- a single-player session never touches the socket.
 mod.hooks:wrap("render.zones", function(next, game, zones)
-  client:pump()
+  if client.online then client:pump() end
   return next(game, zones)
 end)
 
--- Broadcast our own steps.
+-- Broadcast our own steps (ONLINE). A session that authenticated in the
+-- ONLINE menu but then backed out into single player is hung up on the
+-- first step: no MMO leakage into a vanilla game.
 mod.events:on("world.stepped", function(e)
+  if not client.online then
+    if client.state ~= "offline" then client:disconnect() end
+    return
+  end
   client:onStep(e.mapId, e.x, e.y)
 end)
 
 -- Track map changes (resyncs the roster for the new room).
 mod.events:on("map.entered", function(e)
-  client:onMap(e.mapId)
+  if client.online then client:onMap(e.mapId) end
 end)
 
 -- Never block on another player: a remote trainer stands only on a walkable
 -- tile (they walked there), so allowing movement into an occupied tile is safe.
 mod.hooks:wrap("movement.collision", function(next, allowed, ctx)
   allowed = next(allowed, ctx)
+  if not client.online then return allowed end
   if ctx and ctx.toX and ctx.toY then
     for _, r in pairs(client.players.remote) do
       if r.x == ctx.toX and r.y == ctx.toY then return true end
