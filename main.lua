@@ -125,9 +125,11 @@ do
   end
   local prevKeypressed = love.keypressed
   love.keypressed = function(key, ...)
+    local typing = false
     pcall(function()
       local scr = client._screen
       if scr and scr.view == "text" and scr.acceptTyped then
+        typing = true
         if key == "backspace" then
           scr.buffer = scr.buffer:sub(1, -2)
           scr.typedThisFrame = true
@@ -136,6 +138,11 @@ do
         end
       end
     end)
+    -- While typing, the engine must NOT see raw keys: bare digits are its
+    -- hotkeys ("1" speed, "2" CYCLES SCREEN COLORS, "3" tilt, -/= zoom),
+    -- so typing "2" recolored the whole game. Controllers are unaffected
+    -- (they arrive via gamepadpressed).
+    if typing then return end
     if prevKeypressed then return prevKeypressed(key, ...) end
   end
 end

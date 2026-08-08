@@ -568,8 +568,10 @@ return function(mod, client)
         Font.drawBox(0, 0, 20, 18)
         Font.draw("SERVER INFO", 16, 8)
         local s = client.stats
+        local hasStats = client.features and client.features.stats
         local rows = {
-          "Online: " .. tostring(s and s.population or "..."),
+          "Online: " .. tostring(s and s.population
+            or (hasStats and "..." or "n/a")),
           "Channel: " .. tostring((client.channel or 0) + 1)
             .. "/" .. tostring(client.channels or 1),
           "Here: " .. tostring(client.players:count() + 1) .. " players",

@@ -67,15 +67,18 @@ function Client:applyOwnSprite()
   end)
 end
 
---- Ask for the public server stats (server-info screen). 2s server-side
---- cooldown; the reply lands in self.stats.
+--- Ask for the public server stats (server-info screen). GATED on the
+--- welcome's feature list: the frame guard KICKS unknown message types,
+--- so sending stats_get at a pre-0.13 server booted the player (found
+--- live in v0.5.0). Ping is baseline protocol and always safe.
 function Client:requestStats()
-  if self:canSend() then
+  if not self:canSend() then return end
+  if self.features and self.features.stats then
     self.net:send({ type = "stats_get" })
-    -- refresh the ping figure alongside the counts
-    self._pingSentAt = love.timer and love.timer.getTime() or os.clock()
-    self.net:send({ type = "ping" })
   end
+  -- refresh the ping figure alongside the counts
+  self._pingSentAt = love.timer and love.timer.getTime() or os.clock()
+  self.net:send({ type = "ping" })
 end
 
 -- ---------------------------------------------------------------- chat log
@@ -407,6 +410,10 @@ function Client:_dispatch(m)
     self._pendingAuth = nil
     self.channel = m.channel or 0
     self.channels = m.channels or 1
+    -- optional capabilities beyond the v1 baseline (server >= 0.13.1);
+    -- optional SENDS must gate on these or the frame guard kicks us
+    self.features = {}
+    for _, f in ipairs(m.features or {}) do self.features[f] = true end
     self.status = "Online as " .. tostring(m.name)
     if m.skin then self.skin = Skins.sanitize(m.skin) end
     -- push our chosen look to the world, and wear it ourselves
