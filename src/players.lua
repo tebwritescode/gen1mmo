@@ -93,6 +93,25 @@ function Players:leave(name)
   self:_despawn(name)
 end
 
+--- Step the NPC entity one tile directly, NEVER via Handle:scriptMove.
+--- The engine's scriptMoves queue is cutscene machinery: while it is
+--- non-empty the PLAYER'S INPUT IS LOCKED, and a queued step whose NPC
+--- despawns mid-walk (roster resync, channel change) never retires --
+--- which froze the player permanently. NPC:update self-animates from
+--- exactly these fields (the engine's own non-locking "marchers" take
+--- the same shortcut), so the walk looks identical without the queue.
+local function stepEntity(h, x, y, dir)
+  local e = h and h.npc
+  if type(e) ~= "table" or e.moving == nil or e.cellX == nil then return false end
+  if e.moving then return false end -- mid-step: let the caller respawn
+  return (pcall(function()
+    e.facing = dir
+    e.targetX, e.targetY = x, y
+    e.moving = true
+    e.progress = 0
+  end))
+end
+
 --- Apply a movement update, animating adjacent steps.
 function Players:move(name, x, y, dir)
   local r = self.remote[name]
@@ -101,11 +120,10 @@ function Players:move(name, x, y, dir)
     return
   end
   local dx, dy = x - r.x, y - r.y
-  if (math.abs(dx) + math.abs(dy)) == 1 then
-    local h = self:_handle(name)
-    if h then pcall(function() h:scriptMove(dir, 1) end) end
-  else
-    -- teleport / warp / desync: respawn at the destination.
+  if (math.abs(dx) + math.abs(dy)) ~= 1
+      or not stepEntity(self:_handle(name), x, y, dir) then
+    -- teleport / warp / desync / unsteppable entity: respawn at the
+    -- destination.
     self:_spawn(name, x, y, dir, r.skin)
     return
   end
