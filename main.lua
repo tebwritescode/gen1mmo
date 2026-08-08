@@ -28,11 +28,19 @@ local client = Client.new(mod)
 client.overlayOn = mod.save:get("chat_overlay", true)
 client.autoConnect = mod.save:get("auto_connect", true)
 
--- Persisted server address (no infrastructure baked into the public mod; the
--- player points it at a server). Default is localhost for self-hosting/testing.
-client.host = mod.save:get("server_host", "127.0.0.1")
-client.port = mod.save:get("server_port", 7878)
-client.pin = mod.save:get("server_pin", nil)
+-- Default server: the official beta VPS, with its identity pin baked in so
+-- the encrypted tunnel verifies out of the box (the pin is the server's
+-- PUBLIC key -- safe to ship; it is what makes MITM fail closed). The VPS is
+-- a bare, isolated host with no link to the operator's identity, so this
+-- carries no infrastructure secret. Players can still point elsewhere via
+-- "Set server" (persisted) or a private config.lua. Self-hosters override the
+-- pin with their own from first-boot logs.
+local DEFAULT_HOST = "89.125.35.98"
+local DEFAULT_PORT = 7878
+local DEFAULT_PIN  = "iekSvOIqGT14GiJ6EOoTnw8+SKv93Zw0aCdMOeF4T+A="
+client.host = mod.save:get("server_host", DEFAULT_HOST)
+client.port = mod.save:get("server_port", DEFAULT_PORT)
+client.pin = mod.save:get("server_pin", DEFAULT_PIN)
 function client:setServer(host, port)
   self.host = host
   self.port = tonumber(port) or 7878
