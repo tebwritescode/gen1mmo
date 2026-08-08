@@ -14,20 +14,31 @@ local GRID = {
   "456789_.-!",
 }
 
+-- The Gen 1 charmap has no tile for ">", "_" or "*": Font.encode silently
+-- draws them as spaces, which is why a text ">" cursor was invisible on
+-- devices. Selection is drawn the way vanilla menus draw it -- the filled
+-- arrow glyph (Theme.cursor, charmap $ED) via Font.drawCode -- and
+-- underscores/masks are drawn as strokes or mapped to glyphs that exist.
+local MENU_VISIBLE = 8   -- rows y=36..120; row 9 would sit on the border
+local CHAT_VISIBLE = 9   -- rows y=22..118, above the footer
+
 return function(mod, client)
   mod.content.screens:register("Gen1MMO", {
     new = function(game)
       local Font = mod.ui.Font
+      local Theme = mod.ui.Theme
       local self = { game = game, isOpaque = true }
 
       self.view = "menu"          -- menu | text | chat | look | friends
       self.cursor = 1
+      self.menuScroll = 0         -- first visible menu row - 1
       self.gx, self.gy = 1, 1     -- grid cursor for text entry
       self.buffer = ""
       self.textPrompt = ""
       self.textOnDone = nil
       self.textMask = false
       self.scope = "map"
+      self.chatOff = 0            -- lines scrolled back from the newest
       self.lookIndex = 1
 
       local input = game.input
@@ -105,12 +116,61 @@ return function(mod, client)
         self.gx, self.gy = 1, 1
       end
 
+      -- "_" has no charmap tile, so wherever it appears (grid key, typed
+      -- text) it is drawn as a literal underline stroke instead. Defined
+      -- before every draw function that calls it: these are locals, and a
+      -- later definition is an invisible nil global to an earlier one.
+      local function drawUnderscore(x, y)
+        local r, g, b, a = love.graphics.getColor()
+        love.graphics.setColor(0, 0, 0, 1)
+        love.graphics.rectangle("fill", x, y + 6, 7, 2)
+        love.graphics.setColor(r, g, b, a)
+      end
+
+      -- "▲" aliases to the RIGHT arrow tile ($ED) in the charmap, so the
+      -- more-above marker is a stepped triangle of rectangles, mirroring
+      -- moreArrow ($EE)
+      local function drawUpArrow(x, y)
+        local r, g, b, a = love.graphics.getColor()
+        love.graphics.setColor(0, 0, 0, 1)
+        love.graphics.rectangle("fill", x + 3, y + 1, 2, 2)
+        love.graphics.rectangle("fill", x + 2, y + 3, 4, 2)
+        love.graphics.rectangle("fill", x + 1, y + 5, 6, 2)
+        love.graphics.setColor(r, g, b, a)
+      end
+
+      -- keeps the cursor inside the visible window (vanilla Menu:clampScroll)
+      local function clampMenuScroll(count)
+        self.menuScroll = math.min(self.menuScroll, math.max(0, count - MENU_VISIBLE))
+        if self.cursor - self.menuScroll > MENU_VISIBLE then
+          self.menuScroll = self.cursor - MENU_VISIBLE
+        elseif self.cursor - self.menuScroll < 1 then
+          self.menuScroll = self.cursor - 1
+        end
+      end
+
       -- ----- update per view
       local function updateMenu()
         local items = menuItems()
-        if input:wasPressed("up") then self.cursor = math.max(1, self.cursor - 1) end
-        if input:wasPressed("down") then self.cursor = math.min(#items, self.cursor + 1) end
-        if input:wasPressed("a") and items[self.cursor] then items[self.cursor][2]() end
+        -- the item list shrinks on disconnect; never strand the cursor
+        if self.cursor > #items then self.cursor = #items end
+        if input:wasPressed("up") then
+          self.cursor = self.cursor > 1 and self.cursor - 1 or #items
+        end
+        if input:wasPressed("down") then
+          self.cursor = self.cursor < #items and self.cursor + 1 or 1
+        end
+        clampMenuScroll(#items)
+        -- Debounce activation: some controller paths deliver one physical
+        -- A press as edges in two CONSECUTIVE steps (engine bug620 family),
+        -- which made toggle rows flip and instantly flip back. A short
+        -- cooldown swallows the ghost edge; 8 steps is ~130ms, far below
+        -- an intentional double-tap.
+        self._aCool = math.max(0, (self._aCool or 0) - 1)
+        if input:wasPressed("a") and self._aCool == 0 and items[self.cursor] then
+          self._aCool = 8
+          items[self.cursor][2]()
+        end
         if input:wasPressed("b") then game.stack:pop() end
       end
 
@@ -134,6 +194,9 @@ return function(mod, client)
       end
 
       local function updateChat()
+        local maxOff = math.max(0, #client.chat - CHAT_VISIBLE)
+        if input:wasPressed("up") then self.chatOff = math.min(self.chatOff + 1, maxOff) end
+        if input:wasPressed("down") then self.chatOff = math.max(self.chatOff - 1, 0) end
         if input:wasPressed("b") then self.view = "menu" end
         if input:wasPressed("a") then
           self:enterText("SAY:", false, function(t) client:say(self.scope, t) end)
@@ -206,8 +269,22 @@ return function(mod, client)
         if self.view == "key" then self.view = "menu"; return end
         if self.view == "menu" then
           local items = menuItems()
-          for i = 1, #items do
-            local y = 36 + (i - 1) * 12
+          -- scroll-arrow zones before the rows: top border scrolls up,
+          -- bottom border scrolls down (touch users have no d-pad)
+          if self.menuScroll > 0 and cy <= 12 then
+            self.menuScroll = self.menuScroll - 1
+            self.cursor = math.min(self.cursor, self.menuScroll + MENU_VISIBLE)
+            return
+          end
+          if self.menuScroll + MENU_VISIBLE < #items and cy >= 134 then
+            self.menuScroll = self.menuScroll + 1
+            self.cursor = math.max(self.cursor, self.menuScroll + 1)
+            return
+          end
+          for row = 1, MENU_VISIBLE do
+            local i = self.menuScroll + row
+            if not items[i] then break end
+            local y = 36 + (row - 1) * 12
             if cy >= y - 4 and cy <= y + 9 then
               self.cursor = i
               items[i][2]()
@@ -238,6 +315,17 @@ return function(mod, client)
             end
           end
         elseif self.view == "chat" then
+          -- top edge pages back through history, bottom edge pages forward;
+          -- anywhere else opens Say (the pre-scroll behavior)
+          local maxOff = math.max(0, #client.chat - CHAT_VISIBLE)
+          if cy <= 16 and maxOff > 0 then
+            self.chatOff = math.min(self.chatOff + CHAT_VISIBLE, maxOff)
+            return
+          end
+          if cy >= 122 and self.chatOff > 0 then
+            self.chatOff = math.max(self.chatOff - CHAT_VISIBLE, 0)
+            return
+          end
           self:enterText("SAY:", false, function(t) client:say(self.scope, t) end)
         elseif self.view == "look" then
           local CATS = { "body", "skin", "hair", "hairColor", "outfit" }
@@ -264,9 +352,20 @@ return function(mod, client)
         Font.draw("GEN1MMO", 16, 8)
         Font.draw(client.status or "", 8, 20)
         local items = menuItems()
-        for i, it in ipairs(items) do
-          local y = 36 + (i - 1) * 12
-          Font.draw((self.cursor == i and ">" or " ") .. it[1], 12, y)
+        clampMenuScroll(#items)
+        for row = 1, MENU_VISIBLE do
+          local it = items[self.menuScroll + row]
+          if not it then break end
+          local y = 36 + (row - 1) * 12
+          Font.draw(it[1], 20, y)
+          if self.cursor == self.menuScroll + row then
+            Font.drawCode(Theme.cursor, 12, y)
+          end
+        end
+        -- scroll indicators on the border rows (also the tap zones)
+        if self.menuScroll > 0 then drawUpArrow(144, 0) end
+        if self.menuScroll + MENU_VISIBLE < #items then
+          Font.drawCode(Theme.moreArrow, 144, 136)
         end
         -- Input diagnostic: shows the last button this screen received and a
         -- counter. If pressing the d-pad here does NOT change "in:.. #.." then
@@ -281,14 +380,28 @@ return function(mod, client)
       local function drawText()
         Font.drawBox(0, 0, 20, 18)
         Font.draw(self.textPrompt, 8, 8)
-        local shown = self.textMask and string.rep("*", #self.buffer) or self.buffer
-        Font.draw(shown .. "_", 8, 22)
+        -- show the tail that fits the box (17 glyphs); mask with the
+        -- mid-dot, which has a tile ("*" does not)
+        local tail = self.buffer:sub(-17)
+        local shown = self.textMask and string.rep("·", #tail)
+          or (tail:gsub("_", " "))
+        Font.draw(shown, 8, 22)
+        if not self.textMask then
+          for i = 1, #tail do
+            if tail:sub(i, i) == "_" then drawUnderscore(8 + (i - 1) * 8, 22) end
+          end
+        end
+        drawUnderscore(8 + #tail * 8, 22) -- the caret
         for r = 1, #GRID do
           for c = 1, #GRID[r] do
             local ch = GRID[r]:sub(c, c)
             local x = 8 + (c - 1) * 14
             local y = 44 + (r - 1) * 16
-            if self.gx == c and self.gy == r then
+            local sel = self.gx == c and self.gy == r
+            if ch == "_" then
+              if sel then Font.draw("[", x - 2, y); Font.draw("]", x + 14, y) end
+              drawUnderscore(x + (sel and 6 or 0), y)
+            elseif sel then
               Font.draw("[" .. ch .. "]", x - 2, y)
             else
               Font.draw(ch, x, y)
@@ -303,16 +416,24 @@ return function(mod, client)
 
       local function drawChat()
         Font.drawBox(0, 0, 20, 18)
-        Font.draw("CHAT <" .. self.scope .. ">", 8, 6)
+        -- ">" has no tile; "<scope>" drew as "scope " anyway, so skip it
+        Font.draw("CHAT: " .. self.scope, 8, 6)
         local lines = client.chat
-        local start = math.max(1, #lines - 8)
-        for i = start, #lines do
+        local maxOff = math.max(0, #lines - CHAT_VISIBLE)
+        if self.chatOff > maxOff then self.chatOff = maxOff end
+        local last = #lines - self.chatOff
+        local start = math.max(1, last - CHAT_VISIBLE + 1)
+        for i = start, last do
           local y = 22 + (i - start) * 12
           local line = lines[i]
-          if #line > 26 then line = line:sub(1, 26) end
-          Font.draw(line, 6, y)
+          if #line > 18 then line = line:sub(1, 18) end -- 18 glyphs fit the box
+          -- the server censors profanity to "*", which has no tile; show dots
+          Font.draw((line:gsub("%*", "·")), 6, y)
         end
-        Font.draw("A=say L/R=scope B=back", 6, 130)
+        if self.chatOff < maxOff then drawUpArrow(144, 6) end
+        if self.chatOff > 0 then Font.draw("▼", 144, 130) end
+        -- "=" has no tile either; ":" does
+        Font.draw("A:say L/R:scope", 6, 130)
       end
 
       local function drawLook()
@@ -325,9 +446,10 @@ return function(mod, client)
           local list = Skins.catalog[c[3]]
           local val = list[(client.skin[c[2]] or 0) + 1] or "?"
           local y = 26 + (i - 1) * 14
-          Font.draw((self.lookIndex == i and ">" or " ") .. c[1] .. ": " .. val, 8, y)
+          Font.draw(c[1] .. ": " .. val, 16, y)
+          if self.lookIndex == i then Font.drawCode(Theme.cursor, 8, y) end
         end
-        Font.draw("L/R change A=apply B=back", 6, 128)
+        Font.draw("L/R:change A:apply", 6, 128)
       end
 
       local function drawKey(code)
