@@ -81,11 +81,9 @@ return function(mod, client)
                 end)
               end)
             end },
-            { "Set server (" .. tostring(client.host) .. ")", function()
-              self:enterText("HOST:", false, function(h)
-                if #h > 0 then client:setServer(h, client.port) end
-              end)
-            end },
+            -- "Set server" is hidden for the beta: the default already points
+            -- at the official server, and the row exposed its address. Self-
+            -- hosters still override via config.lua / the saved server_host.
             { "Auto-connect: " .. (client.autoConnect and "ON" or "OFF"), function()
               client.autoConnect = not client.autoConnect
               mod.save:set("auto_connect", client.autoConnect)
@@ -182,6 +180,70 @@ return function(mod, client)
         elseif self.view == "look" then updateLook() end
       end
 
+      -- ----- touch: tap items/letters directly (cx,cy in 160x144 canvas
+      -- space; the mod loader maps the screen tap for us). Essential on
+      -- phones, where a controller's d-pad may not reach menus but the
+      -- touchscreen always works. Mirrors the draw layout below exactly.
+      function self:onTap(cx, cy)
+        if client.recoveryCode and not client.keyAcknowledged then
+          client.keyAcknowledged = true
+          return
+        end
+        if self.view == "key" then self.view = "menu"; return end
+        if self.view == "menu" then
+          local items = menuItems()
+          for i = 1, #items do
+            local y = 36 + (i - 1) * 12
+            if cy >= y - 4 and cy <= y + 9 then
+              self.cursor = i
+              items[i][2]()
+              return
+            end
+          end
+        elseif self.view == "text" then
+          -- footer actions first (y ~128): left third deletes, right third confirms
+          if cy >= 122 then
+            if cx <= 54 then
+              self.buffer = self.buffer:sub(1, -2)         -- DEL
+            elseif cx >= 104 then
+              local cb = self.textOnDone; self.view = "menu"; if cb then cb(self.buffer) end
+            end
+            return
+          end
+          for r = 1, #GRID do
+            for c = 1, #GRID[r] do
+              local x = 8 + (c - 1) * 14
+              local y = 44 + (r - 1) * 16
+              if cx >= x - 4 and cx <= x + 11 and cy >= y - 3 and cy <= y + 13 then
+                self.gx, self.gy = c, r
+                if #self.buffer < 24 then
+                  self.buffer = self.buffer .. GRID[r]:sub(c, c)
+                end
+                return
+              end
+            end
+          end
+        elseif self.view == "chat" then
+          self:enterText("SAY:", false, function(t) client:say(self.scope, t) end)
+        elseif self.view == "look" then
+          local CATS = { "body", "skin", "hair", "hairColor", "outfit" }
+          for i = 1, #CATS do
+            local y = 26 + (i - 1) * 14
+            if cy >= y - 3 and cy <= y + 11 then
+              self.lookIndex = i
+              local cat = CATS[i]
+              local listName = ({ body = "bodies", skin = "skinTones", hair = "hairStyles",
+                hairColor = "hairColors", outfit = "outfits" })[cat]
+              local list = Skins.catalog[listName]
+              local step = (cx >= 80) and 1 or -1     -- tap right half = next, left = prev
+              client.skin[cat] = ((client.skin[cat] + step) % #list)
+              client:applySkin(client.skin)
+              return
+            end
+          end
+        end
+      end
+
       -- ----- draw per view
       local function drawMenu()
         Font.drawBox(0, 0, 20, 18)
@@ -211,7 +273,10 @@ return function(mod, client)
             end
           end
         end
-        Font.draw("A=pick SEL=del START=ok", 8, 128)
+        -- tap zones mirror onTap: left = delete, right = confirm
+        Font.draw("DEL", 8, 128)
+        Font.draw("tap letters", 52, 128)
+        Font.draw("OK", 140, 128)
       end
 
       local function drawChat()

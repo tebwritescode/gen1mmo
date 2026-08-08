@@ -76,6 +76,26 @@ mod.events:on("map.entered", function()
   end
 end)
 
+-- Touch: a tap that misses the on-screen controls is routed here. When the
+-- GEN1MMO screen is open, map the tap into 160x144 canvas space and let it
+-- select items / letters directly -- so phone players are never stranded by
+-- a controller whose d-pad doesn't drive menus. Additive: buttons still work.
+mod.hooks:wrap("input.pointer", function(next, game, ev)
+  pcall(function()
+    if ev and ev.phase == "pressed" then
+      local top = game.stack and game.stack:top()
+      local vp = client._vp
+      if top and top.screenId == "Gen1MMO" and top.onTap
+         and vp and vp.gameWidth and vp.gameWidth > 0 and vp.gameHeight and vp.gameHeight > 0 then
+        local cx = (ev.x - (vp.gameX or 0)) / (vp.gameWidth / 160)
+        local cy = (ev.y - (vp.gameY or 0)) / (vp.gameHeight / 144)
+        top:onTap(cx, cy)
+      end
+    end
+  end)
+  return next(game, ev)
+end)
+
 -- Start-menu row that opens Gen1MMO: this release ships the classic overlay
 -- (play normally, connect from this menu, see other trainers in your world).
 -- The dedicated ONLINE title-menu mode with server-side characters lives on

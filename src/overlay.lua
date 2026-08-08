@@ -24,6 +24,10 @@ function Overlay.install(mod, client)
 
   mod.hooks:wrap("render.hud", function(next, game, vp)
     next(game, vp)
+    -- Stash the live viewport (LOVE-unit playfield rect + scale) so the
+    -- pointer hook can map a screen tap into 160x144 canvas space. Same
+    -- coordinate space as love.touch events (verified against TouchControls).
+    if type(vp) == "table" then client._vp = vp end
     if not client.overlayOn or client.state ~= "playing" then return end
     local ok = pcall(function()
       local now = love.timer.getTime()
