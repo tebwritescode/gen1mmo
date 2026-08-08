@@ -27,6 +27,9 @@ local Overlay = GEN1MMO_INCLUDE("src/overlay.lua")
 local client = Client.new(mod)
 client.overlayOn = mod.save:get("chat_overlay", true)
 client.autoConnect = mod.save:get("auto_connect", true)
+-- Beta: on by default so the input readout is visible without navigating a
+-- menu that may be the very thing that isn't responding.
+client.inputDebug = mod.save:get("input_debug", true)
 
 -- Default server: the official beta VPS, with its identity pin baked in so
 -- the encrypted tunnel verifies out of the box (the pin is the server's

@@ -162,7 +162,21 @@ return function(mod, client)
         if input:wasPressed("b") then client:applySkin(client.skin); self.view = "menu" end
       end
 
+      -- Diagnostic latch: record EVERY button edge this screen actually
+      -- receives, so a device can show whether input reaches us at all.
+      -- Toggle off from the menu once the input bug is understood.
+      local DBG_BUTTONS = { "up", "down", "left", "right", "a", "b", "start", "select" }
+      local function noteInput()
+        for _, btn in ipairs(DBG_BUTTONS) do
+          if input:wasPressed(btn) then
+            self._dbgLast = btn
+            self._dbgCount = (self._dbgCount or 0) + 1
+          end
+        end
+      end
+
       function self:update(dt)
+        if client.inputDebug then noteInput() end
         -- A fresh recovery key OWNS the screen until the player confirms:
         -- it is the only thing that can restore a lost account, so it must
         -- be impossible to miss (and a copy sits in the mod save).
@@ -253,6 +267,14 @@ return function(mod, client)
         for i, it in ipairs(items) do
           local y = 36 + (i - 1) * 12
           Font.draw((self.cursor == i and ">" or " ") .. it[1], 12, y)
+        end
+        -- Input diagnostic: shows the last button this screen received and a
+        -- counter. If pressing the d-pad here does NOT change "in:.. #.." then
+        -- the press is not reaching the mod screen (report this).
+        if client.inputDebug then
+          Font.draw("in:" .. tostring(self._dbgLast or "-")
+            .. " #" .. tostring(self._dbgCount or 0)
+            .. " cur:" .. tostring(self.cursor), 8, 138)
         end
       end
 
