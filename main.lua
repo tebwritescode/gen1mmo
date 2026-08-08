@@ -22,6 +22,7 @@ end
 
 local Client = GEN1MMO_INCLUDE("src/client.lua")
 local installScreen = GEN1MMO_INCLUDE("src/screens.lua")
+local installBootMenu = GEN1MMO_INCLUDE("src/bootmenu.lua")
 
 local client = Client.new(mod)
 
@@ -51,6 +52,7 @@ do
 end
 
 installScreen(mod, client)
+installBootMenu(mod, client)
 
 -- Start-menu row that opens Gen1MMO.
 mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
@@ -58,6 +60,26 @@ mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
     mod.ui.insertBefore(items, "OPTION", {
       label = "GEN1MMO",
       onSelect = function() mod.ui.push(game, "Gen1MMO") end,
+    })
+  end)
+  return next(game, items)
+end)
+
+-- ONLINE on the TITLE menu (before any game exists): auth with the server
+-- right there, then continue or start the SERVER-SIDE character. The vanilla
+-- NEW GAME action is captured from the items so online play boots through
+-- the engine's own fresh-game path -- local saves are never loaded.
+mod.hooks:wrap("ui.title_menu.items", function(next, game, items)
+  pcall(function()
+    local newGameAction = nil
+    for _, it in ipairs(items) do
+      if tostring(it.label) == "NEW GAME" then newGameAction = it.onSelect end
+    end
+    mod.ui.insertBefore(items, "OPTION", {
+      label = "ONLINE",
+      onSelect = function()
+        mod.ui.push(game, "Gen1MMOOnline", newGameAction)
+      end,
     })
   end)
   return next(game, items)

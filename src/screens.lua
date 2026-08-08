@@ -249,9 +249,9 @@ return function(mod, client)
           Font.draw(code, 8, 34)
         end
         Font.draw("WRITE IT DOWN NOW.", 8, 72)
-        Font.draw("It restores your", 8, 88)
-        Font.draw("account if you", 8, 100)
-        Font.draw("lose your password.", 8, 112)
+        Font.draw("It is the ONLY way", 8, 88)
+        Font.draw("to get your account", 8, 100)
+        Font.draw("back. No resets.", 8, 112)
         Font.draw("A: I WROTE IT DOWN", 8, 132)
       end
 

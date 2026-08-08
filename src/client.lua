@@ -158,6 +158,30 @@ function Client:joinChannel(n)
   if self.state == "playing" then self.net:send({ type = "join_channel", channel = n }) end
 end
 
+-- ------------------------------------------------- server-side character
+-- The authoritative copy of an online character (party, levels, money,
+-- items, position, badges) lives on the server; these are the only ways it
+-- changes. There is deliberately no local-save import.
+
+function Client:charGet()
+  if self.state == "playing" then
+    self.charNone = nil
+    self.net:send({ type = "char_get" })
+  end
+end
+
+function Client:charNew(starter, confirm)
+  if self.state == "playing" then
+    self.net:send({ type = "char_new", starter = starter, confirm = confirm or nil })
+  end
+end
+
+function Client:charEvent(ev)
+  if self.state == "playing" then
+    self.net:send({ type = "char_event", ev = ev })
+  end
+end
+
 -- ---------------------------------------------------------------- world events
 
 function Client:onStep(mapId, x, y)
@@ -325,6 +349,15 @@ function Client:_dispatch(m)
   elseif t == "channel_joined" then
     self.channel = m.channel
     self:log("Joined channel " .. tostring(m.channel))
+  elseif t == "char_state" then
+    self.charState = m.state
+    self.charRev = m.rev
+    self.charNone = false
+  elseif t == "char_none" then
+    self.charState = nil
+    self.charNone = true
+  elseif t == "char_ok" then
+    self.charRev = m.rev
   elseif t == "pong" then
     -- keepalive answer; nothing to do
   elseif t == "resync" then
