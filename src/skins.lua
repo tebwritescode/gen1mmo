@@ -40,15 +40,30 @@ function Skins.sanitize(t)
   }
 end
 
---- Overworld sprite id for a skin. Built-in engine sprites for the beta so no
---- art needs to ship; body type gives a visible distinction today.
---- (Verified against the Red cache's sprites registry: SPRITE_RED and
---- SPRITE_BLUE exist; the once-assumed SPRITE_HERO does not.)
-function Skins.overworldSprite(skin)
+--- Base engine sprite for a body (always present in the cache registry).
+function Skins.baseSprite(skin)
   skin = skin or Skins.DEFAULT
-  local body = tonumber(skin.body) or 0
-  if body == 1 then return "SPRITE_BLUE" end
+  if (tonumber(skin.body) or 0) == 1 then return "SPRITE_BLUE" end
   return "SPRITE_RED"
+end
+
+--- Preferred overworld sprite ids for a skin, best first: the tone-variant
+--- sheet the transform derived (G1MMO_B<body>_T<tone>, trueColor), then the
+--- vanilla body sheet, then RED (the sprite every cache carries). Callers
+--- walk the list because a variant can legitimately be missing (no ROM
+--- import yet, engine drift) and a look must never make a player invisible.
+function Skins.spriteCandidates(skin)
+  skin = Skins.sanitize(skin)
+  return {
+    ("G1MMO_B%d_T%d"):format(skin.body, skin.skin),
+    Skins.baseSprite(skin),
+    "SPRITE_RED",
+  }
+end
+
+--- Back-compat single-id accessor (the base body sheet).
+function Skins.overworldSprite(skin)
+  return Skins.baseSprite(skin)
 end
 
 --- Human-readable summary for the editor.

@@ -29,7 +29,7 @@ return function(mod, client)
       local Theme = mod.ui.Theme
       local self = { game = game, isOpaque = true }
 
-      self.view = "menu"          -- menu | text | chat | look | friends
+      self.view = "menu"          -- menu | text | chat | look | player | stats | key
       self.cursor = 1
       self.menuScroll = 0         -- first visible menu row - 1
       self.gx, self.gy = 1, 1     -- grid cursor for text entry
@@ -37,9 +37,21 @@ return function(mod, client)
       self.textPrompt = ""
       self.textOnDone = nil
       self.textMask = false
+      self.acceptTyped = false    -- native keyboard feeds the buffer
       self.scope = "map"
       self.chatOff = 0            -- lines scrolled back from the newest
       self.lookIndex = 1
+      self.playerTarget = nil     -- name behind the "player" action view
+
+      -- the love.textinput/keypressed wraps in main.lua reach the active
+      -- screen through this
+      client._screen = self
+      -- opened by an A-press on a remote player (world.interacted)
+      if client._openPlayerMenu then
+        self.view = "player"
+        self.playerTarget = client._openPlayerMenu
+        client._openPlayerMenu = nil
+      end
 
       local input = game.input
 
@@ -69,6 +81,10 @@ return function(mod, client)
             end },
             { "Next channel", function()
               client:joinChannel((client.channel + 1) % math.max(1, client.channels))
+            end },
+            { "Server info", function()
+              client:requestStats()
+              self.view = "stats"
             end },
             { "Overlay: " .. (client.overlayOn and "ON" or "OFF"), function()
               client.overlayOn = not client.overlayOn
@@ -114,6 +130,18 @@ return function(mod, client)
         self.textMask = mask
         self.textOnDone = onDone
         self.gx, self.gy = 1, 1
+        -- native typing alongside the grid: summons the soft keyboard on
+        -- touch devices, lets hardware keyboards type directly
+        self.acceptTyped = true
+        self.typedThisFrame = false
+        self.submitTyped = false
+        pcall(function() love.keyboard.setTextInput(true) end)
+      end
+
+      function self:leaveText(nextView)
+        self.acceptTyped = false
+        pcall(function() love.keyboard.setTextInput(false) end)
+        self.view = nextView or "menu"
       end
 
       -- "_" has no charmap tile, so wherever it appears (grid key, typed
@@ -175,6 +203,21 @@ return function(mod, client)
       end
 
       local function updateText()
+        -- native-keyboard events first: a typed key may ALSO be bound to a
+        -- GB button (z/x/enter/arrows), so a frame that took a typed char
+        -- swallows its button echoes entirely
+        if self.submitTyped then
+          self.submitTyped = false
+          self.typedThisFrame = false
+          local cb = self.textOnDone
+          self:leaveText()
+          if cb then cb(self.buffer) end
+          return
+        end
+        if self.typedThisFrame then
+          self.typedThisFrame = false
+          return
+        end
         if input:wasPressed("up") then self.gy = ((self.gy - 2) % #GRID) + 1 end
         if input:wasPressed("down") then self.gy = (self.gy % #GRID) + 1 end
         if input:wasPressed("left") then self.gx = ((self.gx - 2) % #GRID[1]) + 1 end
@@ -187,10 +230,48 @@ return function(mod, client)
         if input:wasPressed("select") then self.buffer = self.buffer:sub(1, -2) end -- backspace
         if input:wasPressed("start") then
           local cb = self.textOnDone
-          self.view = "menu"
+          self:leaveText()
           if cb then cb(self.buffer) end
         end
-        if input:wasPressed("b") then self.view = "menu" end
+        if input:wasPressed("b") then self:leaveText() end
+      end
+
+      -- the A-press-on-a-player action menu
+      local function playerItems()
+        local who = self.playerTarget or "?"
+        return {
+          { "Whisper", function()
+            self:enterText("TO " .. who .. ":", false, function(t)
+              client:whisper(who, t)
+              client:log("(to " .. who .. ") " .. t)
+            end)
+          end },
+          { "Add friend", function()
+            client:addFriend(who)
+            client:log("Friend request sent to " .. who .. ".")
+          end },
+          { "Close", function() game.stack:pop() end },
+        }
+      end
+
+      local function updatePlayer()
+        local items = playerItems()
+        if self.cursor > #items then self.cursor = #items end
+        if input:wasPressed("up") then
+          self.cursor = self.cursor > 1 and self.cursor - 1 or #items
+        end
+        if input:wasPressed("down") then
+          self.cursor = self.cursor < #items and self.cursor + 1 or 1
+        end
+        if input:wasPressed("a") and items[self.cursor] then items[self.cursor][2]() end
+        if input:wasPressed("b") then game.stack:pop() end
+      end
+
+      local function updateStats()
+        -- keep the figures live while the screen is up (server cooldown 2s)
+        self._statsTick = (self._statsTick or 0) + 1
+        if self._statsTick % 150 == 0 then client:requestStats() end
+        if input:wasPressed("a") or input:wasPressed("b") then self.view = "menu" end
       end
 
       local function updateChat()
@@ -254,7 +335,9 @@ return function(mod, client)
         if self.view == "menu" then updateMenu()
         elseif self.view == "text" then updateText()
         elseif self.view == "chat" then updateChat()
-        elseif self.view == "look" then updateLook() end
+        elseif self.view == "look" then updateLook()
+        elseif self.view == "player" then updatePlayer()
+        elseif self.view == "stats" then updateStats() end
       end
 
       -- ----- touch: tap items/letters directly (cx,cy in 160x144 canvas
@@ -292,12 +375,17 @@ return function(mod, client)
             end
           end
         elseif self.view == "text" then
+          -- tap the typed line to (re)summon the soft keyboard
+          if cy <= 36 then
+            pcall(function() love.keyboard.setTextInput(true) end)
+            return
+          end
           -- footer actions first (y ~128): left third deletes, right third confirms
           if cy >= 122 then
             if cx <= 54 then
               self.buffer = self.buffer:sub(1, -2)         -- DEL
             elseif cx >= 104 then
-              local cb = self.textOnDone; self.view = "menu"; if cb then cb(self.buffer) end
+              local cb = self.textOnDone; self:leaveText(); if cb then cb(self.buffer) end
             end
             return
           end
@@ -314,6 +402,18 @@ return function(mod, client)
               end
             end
           end
+        elseif self.view == "player" then
+          local items = playerItems()
+          for i = 1, #items do
+            local y = 44 + (i - 1) * 14
+            if cy >= y - 3 and cy <= y + 11 then
+              self.cursor = i
+              items[i][2]()
+              return
+            end
+          end
+        elseif self.view == "stats" then
+          self.view = "menu"
         elseif self.view == "chat" then
           -- top edge pages back through history, bottom edge pages forward;
           -- anywhere else opens Say (the pre-scroll behavior)
@@ -452,6 +552,35 @@ return function(mod, client)
         Font.draw("L/R:change A:apply", 6, 128)
       end
 
+      local function drawPlayer()
+        Font.drawBox(0, 0, 20, 18)
+        Font.draw("PLAYER", 16, 8)
+        Font.draw(tostring(self.playerTarget or "?"), 16, 22)
+        local items = playerItems()
+        for i, it in ipairs(items) do
+          local y = 44 + (i - 1) * 14
+          Font.draw(it[1], 24, y)
+          if self.cursor == i then Font.drawCode(Theme.cursor, 16, y) end
+        end
+      end
+
+      local function drawStats()
+        Font.drawBox(0, 0, 20, 18)
+        Font.draw("SERVER INFO", 16, 8)
+        local s = client.stats
+        local rows = {
+          "Online: " .. tostring(s and s.population or "..."),
+          "Channel: " .. tostring((client.channel or 0) + 1)
+            .. "/" .. tostring(client.channels or 1),
+          "Here: " .. tostring(client.players:count() + 1) .. " players",
+          "Ping: " .. (client.pingMs and (client.pingMs .. " ms") or "..."),
+        }
+        for i, row in ipairs(rows) do
+          Font.draw(row, 12, 28 + (i - 1) * 14)
+        end
+        Font.draw("A/B: back", 12, 128)
+      end
+
       local function drawKey(code)
         Font.drawBox(0, 0, 20, 18)
         Font.draw("YOUR RECOVERY KEY", 12, 10)
@@ -488,7 +617,9 @@ return function(mod, client)
         if self.view == "menu" then drawMenu()
         elseif self.view == "text" then drawText()
         elseif self.view == "chat" then drawChat()
-        elseif self.view == "look" then drawLook() end
+        elseif self.view == "look" then drawLook()
+        elseif self.view == "player" then drawPlayer()
+        elseif self.view == "stats" then drawStats() end
       end
 
       return self

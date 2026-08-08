@@ -34,8 +34,48 @@ function Client.new(mod)
     mapId = nil,
     x = 0, y = 0, dir = "down",
     lastError = nil,
+    pingMs = nil,          -- measured round-trip, for the server-info screen
+    stats = nil,           -- last "stats" reply
   }, Client)
   return self
+end
+
+-- ------------------------------------------------------------- own sprite
+
+--- Make the LOCAL player wear their own look: swap the overworld player's
+--- sprite renderer to the best available sheet for our skin. The player
+--- object is a process-lifetime singleton (survives maps and save loads),
+--- so one successful apply sticks; we re-check per map only when the
+--- wanted sheet changed. All engine reaches are pcall'd: cosmetics must
+--- never take the game down.
+function Client:applyOwnSprite()
+  pcall(function()
+    local Game = require("src.core.Game")
+    local ow = Game.overworld
+    if not (ow and ow.player) then return end
+    for _, id in ipairs(Skins.spriteCandidates(self.skin)) do
+      local def = Game.data.sprites[id]
+      if def then
+        if self._ownSpriteId ~= id then
+          local SR = require("src.render.SpriteRenderer")
+          ow.player.sprite = SR.new(def, "player")
+          self._ownSpriteId = id
+        end
+        return
+      end
+    end
+  end)
+end
+
+--- Ask for the public server stats (server-info screen). 2s server-side
+--- cooldown; the reply lands in self.stats.
+function Client:requestStats()
+  if self:canSend() then
+    self.net:send({ type = "stats_get" })
+    -- refresh the ping figure alongside the counts
+    self._pingSentAt = love.timer and love.timer.getTime() or os.clock()
+    self.net:send({ type = "ping" })
+  end
 end
 
 -- ---------------------------------------------------------------- chat log
@@ -43,6 +83,13 @@ end
 function Client:log(line)
   self.chat[#self.chat + 1] = line
   while #self.chat > CHAT_MAX do table.remove(self.chat, 1) end
+end
+
+--- Sendable = playing AND a live transport. The two can drift apart for a
+--- frame around disconnects (and probes force state without a socket);
+--- every outbound path checks both so a race is a no-op, never a crash.
+function Client:canSend()
+  return self.state == "playing" and self.net ~= nil
 end
 
 -- ---------------------------------------------------------------- connect
@@ -154,12 +201,12 @@ end
 -- ---------------------------------------------------------------- actions
 
 function Client:say(scope, text)
-  if self.state ~= "playing" or #text == 0 then return end
+  if not self:canSend() or #text == 0 then return end
   self.net:send({ type = "chat", scope = scope, text = text })
 end
 
 function Client:whisper(to, text)
-  if self.state ~= "playing" then return end
+  if not self:canSend() then return end
   -- Beta: whispers relay as plaintext payload (E2EE lands with the tunnel).
   self.net:send({ type = "whisper", to = to, payload = text })
 end
@@ -167,23 +214,24 @@ end
 function Client:applySkin(skin)
   self.skin = Skins.sanitize(skin)
   self.mod.save:set("skin", self.skin)
-  if self.state == "playing" then
+  self:applyOwnSprite()
+  if self:canSend() then
     self.net:send({ type = "set_skin", skin = self.skin })
   end
 end
 
 function Client:addFriend(name)
-  if self.state == "playing" then self.net:send({ type = "friend_request", to = name }) end
+  if self:canSend() then self.net:send({ type = "friend_request", to = name }) end
 end
 
 function Client:report(accused, category, messages)
-  if self.state == "playing" then
+  if self:canSend() then
     self.net:send({ type = "report", accused = accused, category = category, messages = messages })
   end
 end
 
 function Client:joinChannel(n)
-  if self.state == "playing" then self.net:send({ type = "join_channel", channel = n }) end
+  if self:canSend() then self.net:send({ type = "join_channel", channel = n }) end
 end
 
 -- ------------------------------------------------- server-side character
@@ -192,20 +240,20 @@ end
 -- changes. There is deliberately no local-save import.
 
 function Client:charGet()
-  if self.state == "playing" then
+  if self:canSend() then
     self.charNone = nil
     self.net:send({ type = "char_get" })
   end
 end
 
 function Client:charNew(starter, confirm)
-  if self.state == "playing" then
+  if self:canSend() then
     self.net:send({ type = "char_new", starter = starter, confirm = confirm or nil })
   end
 end
 
 function Client:charEvent(ev)
-  if self.state == "playing" then
+  if self:canSend() then
     self.net:send({ type = "char_event", ev = ev })
   end
 end
@@ -213,7 +261,7 @@ end
 -- ---------------------------------------------------------------- world events
 
 function Client:onStep(mapId, x, y)
-  if self.state ~= "playing" then return end
+  if not self:canSend() then return end
   if self.x ~= x or self.y ~= y then
     if x > self.x then self.dir = "right" elseif x < self.x then self.dir = "left"
     elseif y > self.y then self.dir = "down" elseif y < self.y then self.dir = "up" end
@@ -229,7 +277,10 @@ function Client:onMap(mapId)
   self.mapId = mapId
   self.players:setMap(mapId)
   self.players:clear()
-  if self.state == "playing" then
+  -- the overworld player exists by now; wear our look even before any
+  -- connection (cosmetics are yours offline too)
+  self:applyOwnSprite()
+  if self:canSend() then
     -- Trigger a re-home + fresh roster for the new map.
     self.net:send({ type = "move", x = self.x, y = self.y, dir = self.dir, map = tostring(mapId) })
   end
@@ -252,12 +303,14 @@ function Client:pump()
   if self.net.connected and self.state == "playing" then
     local now = love.timer and love.timer.getTime() or os.clock()
     if self.net.lastTx and (now - self.net.lastTx) > PING_EVERY then
+      self._pingSentAt = now
       self.net:send({ type = "ping" })
     end
   end
   if self.net.closed then
     if self.state ~= "offline" then
       self.status = self.net.error or "connection lost"
+      self:log("* Disconnected: " .. tostring(self.net.error or "connection lost"))
       self.state = "offline"
       self.players:clear()
     end
@@ -356,9 +409,10 @@ function Client:_dispatch(m)
     self.channels = m.channels or 1
     self.status = "Online as " .. tostring(m.name)
     if m.skin then self.skin = Skins.sanitize(m.skin) end
-    -- push our chosen look to the world
+    -- push our chosen look to the world, and wear it ourselves
     self.net:send({ type = "set_skin", skin = self.skin })
-    self:log("Welcome, " .. tostring(m.name) .. "!")
+    self:applyOwnSprite()
+    self:log("Welcome, " .. tostring(m.name) .. "! (channel " .. tostring(self.channel) .. ")")
   elseif t == "roster" then
     self.players:setMap(m.mapId or self.mapId)
     self.players:setRoster(m.players or {})
@@ -367,6 +421,7 @@ function Client:_dispatch(m)
     self:log(tostring(m.name) .. " appeared.")
   elseif t == "player_leave" then
     self.players:leave(m.name)
+    self:log(tostring(m.name) .. " left.")
   elseif t == "player_move" then
     self.players:move(m.name, m.x, m.y, m.dir)
   elseif t == "player_skin" then
@@ -396,7 +451,13 @@ function Client:_dispatch(m)
   elseif t == "char_ok" then
     self.charRev = m.rev
   elseif t == "pong" then
-    -- keepalive answer; nothing to do
+    if self._pingSentAt then
+      local now = love.timer and love.timer.getTime() or os.clock()
+      self.pingMs = math.floor((now - self._pingSentAt) * 1000 + 0.5)
+      self._pingSentAt = nil
+    end
+  elseif t == "stats" then
+    self.stats = m
   elseif t == "resync" then
     if m.x then self.x = m.x end
     if m.y then self.y = m.y end
@@ -411,6 +472,7 @@ function Client:_dispatch(m)
     self:log("! " .. tostring(m.code) .. (m.reason and (" (" .. m.reason .. ")") or ""))
   elseif t == "kick" then
     self.status = "Kicked: " .. tostring(m.reason)
+    self:log("* Kicked: " .. tostring(m.reason))
     self:disconnect()
   end
 end

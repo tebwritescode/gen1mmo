@@ -23,6 +23,25 @@ end
 local Client = GEN1MMO_INCLUDE("src/client.lua")
 local installScreen = GEN1MMO_INCLUDE("src/screens.lua")
 local Overlay = GEN1MMO_INCLUDE("src/overlay.lua")
+local Nametags = GEN1MMO_INCLUDE("src/nametags.lua")
+
+-- Skin-tone sprite sheets: transforms.lua derives them from the player's
+-- own cache at install (save/mod-derived/gen1mmo/sprites/g1mmo_b<B>_t<T>.png,
+-- served through assets/generated/...). Registries FREEZE after load, so
+-- every id must exist now; a missing derived file (no ROM import yet) just
+-- means spawn falls back to the vanilla RED/BLUE sheets.
+for body = 0, 1 do
+  for tone = 0, 7 do
+    mod.content.sprites:register(("G1MMO_B%d_T%d"):format(body, tone), {
+      image = ("assets/generated/sprites/g1mmo_b%d_t%d.png"):format(body, tone),
+      frames = 6,
+      walker = true,
+      -- exact RGB in every color mode; also exempts the sprite from the
+      -- SGB zone shader, which is what makes per-player tones possible
+      trueColor = true,
+    })
+  end
+end
 
 local client = Client.new(mod)
 client.overlayOn = mod.save:get("chat_overlay", true)
@@ -67,6 +86,59 @@ end
 
 installScreen(mod, client)
 Overlay.install(mod, client)
+Nametags.install(mod, client)
+
+-- A-press on a remote player: the engine resolves the interaction to our
+-- spawned NPC (def.name "g1mmo:<name>"); open the player action menu.
+mod.events:on("world.interacted", function(ev)
+  pcall(function()
+    if not (ev and ev.kind == "npc" and ev.target) then return end
+    local def = ev.target.def
+    local who = def and def.name and def.name:match("^g1mmo:(.+)$")
+    if not who then return end
+    -- the screen reads this flag in new() -- Screens.push has no
+    -- documented return value, so don't rely on one
+    client._openPlayerMenu = who
+    mod.ui.push(require("src.core.Game"), "Gen1MMO")
+  end)
+end)
+
+-- Native keyboard for text entry: while the Gen1MMO text view is open,
+-- typed characters land in the buffer (Android/iOS soft keyboard included;
+-- screens.lua summons it via love.keyboard.setTextInput). Wrapped, never
+-- replaced: the engine's own handlers still run.
+do
+  local ALLOWED = "^[%w_%.%-%!]$"
+  local prevTextinput = love.textinput
+  love.textinput = function(text, ...)
+    pcall(function()
+      local scr = client._screen
+      if scr and scr.view == "text" and scr.acceptTyped then
+        local ch = tostring(text):upper()
+        if ch:match(ALLOWED) and #scr.buffer < 24 then
+          scr.buffer = scr.buffer .. ch
+          scr.typedThisFrame = true -- suppress the same key's GB-button echo
+        end
+      end
+    end)
+    if prevTextinput then return prevTextinput(text, ...) end
+  end
+  local prevKeypressed = love.keypressed
+  love.keypressed = function(key, ...)
+    pcall(function()
+      local scr = client._screen
+      if scr and scr.view == "text" and scr.acceptTyped then
+        if key == "backspace" then
+          scr.buffer = scr.buffer:sub(1, -2)
+          scr.typedThisFrame = true
+        elseif key == "return" or key == "kpenter" then
+          scr.submitTyped = true
+        end
+      end
+    end)
+    if prevKeypressed then return prevKeypressed(key, ...) end
+  end
+end
 
 -- Auto-connect: once someone has logged in before, later sessions go online
 -- on their own as soon as the world is up (stored verifier, never the

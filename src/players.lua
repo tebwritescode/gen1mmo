@@ -32,32 +32,26 @@ function Players:setMap(mapId)
   self.mapId = mapId
 end
 
-local function spriteFor(skin)
-  return Skins.overworldSprite(skin)
-end
-
 --- Spawn (or replace) a remote trainer at a tile.
 function Players:_spawn(name, x, y, dir, skin)
   skin = skin or self.skins[name]
   if skin then self.skins[name] = skin end
   self:_despawn(name)
   local objDef = {
-    sprite = spriteFor(skin),
     x = x, y = y,
     range = DIR_TO_RANGE[dir] or "DOWN",
     name = "g1mmo:" .. name,
     -- movement omitted => STAY: we drive position from the network, no wander.
   }
-  local ok, npcId = pcall(function() return self.mod.world:spawnNpc(self.mapId, objDef) end)
-  if not (ok and npcId) then
-    -- Never let a look make a player invisible: an unregistered sprite id
-    -- (engine version drift, modded sprite sets) falls back to the sprite
-    -- every cache carries.
-    objDef.sprite = "SPRITE_RED"
-    ok, npcId = pcall(function() return self.mod.world:spawnNpc(self.mapId, objDef) end)
-  end
-  if ok and npcId then
-    self.remote[name] = { npcId = npcId, x = x, y = y, dir = dir, skin = skin }
+  -- Best look first (tone-variant sheet), degrading toward the sprite every
+  -- cache carries: a look must never make a player invisible.
+  for _, spriteId in ipairs(Skins.spriteCandidates(skin)) do
+    objDef.sprite = spriteId
+    local ok, npcId = pcall(function() return self.mod.world:spawnNpc(self.mapId, objDef) end)
+    if ok and npcId then
+      self.remote[name] = { npcId = npcId, x = x, y = y, dir = dir, skin = skin }
+      return
+    end
   end
 end
 
@@ -134,12 +128,20 @@ function Players:setSkin(name, skin)
   self.skins[name] = skin
   local r = self.remote[name]
   if not r then return end
-  -- Re-sprite only if the body (and thus base sprite) changed; otherwise the
-  -- tuple is stored for when richer skin rendering lands.
-  local before = r.skin and Skins.overworldSprite(r.skin) or nil
+  -- Re-sprite only when the rendered sheet would change (body or tone).
+  local before = r.skin and Skins.spriteCandidates(r.skin)[1] or nil
   r.skin = skin
-  if Skins.overworldSprite(skin) ~= before then
+  if Skins.spriteCandidates(skin)[1] ~= before then
     self:_spawn(name, r.x, r.y, r.dir, skin)
+  end
+end
+
+--- Iterate live remote entities: callback(name, npcEntity, record).
+--- For the nametag pass; entities can be nil mid-respawn -- skipped.
+function Players:eachEntity(fn)
+  for name, r in pairs(self.remote) do
+    local ok, h = pcall(function() return self.mod.world:npc(self.mapId, r.npcId) end)
+    if ok and h and h.npc then fn(name, h.npc, r) end
   end
 end
 
