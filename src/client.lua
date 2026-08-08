@@ -280,6 +280,12 @@ function Client:_dispatch(m)
     self:_finishLogin(m.salt)
   elseif t == "registered" or t == "recovered" then
     self.recoveryCode = m.recoveryCode
+    -- Shown full-screen until acknowledged (screens.lua), and copied into
+    -- the mod save so it stays re-readable from the menu (RECOVERY.md).
+    self.keyAcknowledged = false
+    if m.recoveryCode then
+      pcall(function() self.mod.save:set("recovery_code", m.recoveryCode) end)
+    end
     self:log("*** SAVE YOUR RECOVERY CODE ***")
     self:log(m.recoveryCode or "?")
   elseif t == "welcome" then

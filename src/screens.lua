@@ -33,9 +33,16 @@ return function(mod, client)
       local input = game.input
 
       -- ----- helpers
+      local function withRecoveryRow(items)
+        if mod.save:get("recovery_code", nil) or client.recoveryCode then
+          items[#items + 1] = { "Recovery key", function() self.view = "key" end }
+        end
+        return items
+      end
+
       local function menuItems()
         if client.state == "playing" then
-          return {
+          return withRecoveryRow {
             { "Chat", function() self.view = "chat" end },
             { "Say something", function()
               self:enterText("SAY:", false, function(t) client:say(self.scope, t) end)
@@ -55,7 +62,7 @@ return function(mod, client)
             { "Disconnect", function() client:disconnect() end },
           }
         else
-          return {
+          return withRecoveryRow {
             { "Register (new)", function()
               self:enterText("USERNAME:", false, function(u)
                 self:enterText("PASSWORD:", true, function(p)
@@ -146,6 +153,17 @@ return function(mod, client)
       end
 
       function self:update(dt)
+        -- A fresh recovery key OWNS the screen until the player confirms:
+        -- it is the only thing that can restore a lost account, so it must
+        -- be impossible to miss (and a copy sits in the mod save).
+        if client.recoveryCode and not client.keyAcknowledged then
+          if input:wasPressed("a") then client.keyAcknowledged = true end
+          return
+        end
+        if self.view == "key" then
+          if input:wasPressed("a") or input:wasPressed("b") then self.view = "menu" end
+          return
+        end
         if self.view == "menu" then updateMenu()
         elseif self.view == "text" then updateText()
         elseif self.view == "chat" then updateChat()
@@ -161,9 +179,6 @@ return function(mod, client)
         for i, it in ipairs(items) do
           local y = 36 + (i - 1) * 12
           Font.draw((self.cursor == i and ">" or " ") .. it[1], 12, y)
-        end
-        if client.recoveryCode then
-          Font.draw("CODE SAVED IN CHAT", 8, 132)
         end
       end
 
@@ -216,7 +231,39 @@ return function(mod, client)
         Font.draw("L/R change A=apply B=back", 6, 128)
       end
 
+      local function drawKey(code)
+        Font.drawBox(0, 0, 20, 18)
+        Font.draw("YOUR RECOVERY KEY", 12, 10)
+        code = tostring(code or "?")
+        -- The full key is wider than the canvas: wrap at the hyphen nearest
+        -- the middle so both halves stay inside the 20-tile box.
+        local cut = nil
+        local mid = math.floor(#code / 2)
+        for i = mid, #code do
+          if code:sub(i, i) == "-" then cut = i; break end
+        end
+        if cut then
+          Font.draw(code:sub(1, cut - 1), 8, 34)
+          Font.draw(code:sub(cut + 1), 8, 48)
+        else
+          Font.draw(code, 8, 34)
+        end
+        Font.draw("WRITE IT DOWN NOW.", 8, 72)
+        Font.draw("It restores your", 8, 88)
+        Font.draw("account if you", 8, 100)
+        Font.draw("lose your password.", 8, 112)
+        Font.draw("A: I WROTE IT DOWN", 8, 132)
+      end
+
       function self:draw()
+        if client.recoveryCode and not client.keyAcknowledged then
+          drawKey(client.recoveryCode)
+          return
+        end
+        if self.view == "key" then
+          drawKey(mod.save:get("recovery_code", nil) or client.recoveryCode)
+          return
+        end
         if self.view == "menu" then drawMenu()
         elseif self.view == "text" then drawText()
         elseif self.view == "chat" then drawChat()
