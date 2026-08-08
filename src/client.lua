@@ -5,6 +5,7 @@
 
 local Net = GEN1MMO_INCLUDE("src/net.lua")
 local Crypto = GEN1MMO_INCLUDE("src/crypto.lua")
+local Tunnel = GEN1MMO_INCLUDE("src/tunnel.lua")
 local Filter = GEN1MMO_INCLUDE("src/filter.lua")
 local Players = GEN1MMO_INCLUDE("src/players.lua")
 local Skins = GEN1MMO_INCLUDE("src/skins.lua")
@@ -46,6 +47,18 @@ end
 
 -- ---------------------------------------------------------------- connect
 
+local function isLoopback(host)
+  return host == "localhost" or host == "::1" or host:sub(1, 4) == "127."
+end
+
+--- Base64-decode that never raises (LOVE errors on malformed input).
+local function b64maybe(s)
+  if type(s) ~= "string" then return nil end
+  local ok, raw = pcall(Crypto.fromBase64, s)
+  if ok and type(raw) == "string" then return raw end
+  return nil
+end
+
 function Client:connect(host, port, intent, name, password)
   if self.net then self.net:close() end
   self.net = Net.new()
@@ -58,7 +71,12 @@ function Client:connect(host, port, intent, name, password)
     self.state = "offline"
     return false
   end
-  self.net:send({ type = "hello", v = 1 })
+  -- Always OFFER the tunnel: a fresh ephemeral key rides in the hello. What
+  -- we accept back is decided in the hello_ack handler (pinned > unpinned >
+  -- plaintext-on-loopback-only).
+  self._connHost = tostring(host)
+  self._hs = Tunnel.start(Tunnel.gatherEntropy(self._connHost .. ":" .. tostring(port)))
+  self.net:send({ type = "hello", v = 1, cpub = Crypto.toBase64(self._hs.cpub) })
   self.state = "greeted"
   self.status = "Handshaking..."
   return true
@@ -67,6 +85,7 @@ end
 function Client:disconnect()
   if self.net then self.net:close() end
   self.players:clear()
+  self._hs = nil
   self.state = "offline"
   self.status = "Disconnected"
   self.name = nil
@@ -149,7 +168,9 @@ function Client:onStep(mapId, x, y)
   end
   self.x, self.y = x, y
   if mapId ~= self.mapId then self:onMap(mapId) end
-  self.net:send({ type = "move", x = x, y = y, dir = self.dir, map = mapId })
+  -- Map ids ride as strings on the wire (server-side room keys are
+  -- format-checked strings; engines may hand us numbers).
+  self.net:send({ type = "move", x = x, y = y, dir = self.dir, map = tostring(mapId) })
 end
 
 function Client:onMap(mapId)
@@ -158,15 +179,30 @@ function Client:onMap(mapId)
   self.players:clear()
   if self.state == "playing" then
     -- Trigger a re-home + fresh roster for the new map.
-    self.net:send({ type = "move", x = self.x, y = self.y, dir = self.dir, map = mapId })
+    self.net:send({ type = "move", x = self.x, y = self.y, dir = self.dir, map = tostring(mapId) })
   end
 end
 
 -- ---------------------------------------------------------------- pump
 
+-- Keepalive cadence: well under the server's 90s transport idle reaper, and
+-- friendly to consumer NAT table lifetimes.
+local PING_EVERY = 30
+
 function Client:pump()
   if not self.net then return end
   self.net:update()
+  -- A player standing still sends nothing; without this the transport reaper
+  -- (or their router's NAT) would drop them. Pings deliberately do NOT count
+  -- as presence server-side: truly AFK players still get the idle disconnect.
+  -- Only while PLAYING: the auth exchange is its own traffic, and older
+  -- servers refuse pings before the welcome.
+  if self.net.connected and self.state == "playing" then
+    local now = love.timer and love.timer.getTime() or os.clock()
+    if self.net.lastTx and (now - self.net.lastTx) > PING_EVERY then
+      self.net:send({ type = "ping" })
+    end
+  end
   if self.net.closed then
     if self.state ~= "offline" then
       self.status = self.net.error or "connection lost"
@@ -194,12 +230,48 @@ end
 
 -- ---------------------------------------------------------------- dispatch
 
+--- hello_ack policy, strictest applicable path wins:
+---   pin configured        -> signature MUST verify against it (else refuse)
+---   no pin, remote host   -> encrypted but UNVERIFIED (beta posture, said so)
+---   no pin, loopback      -> unverified tunnel, or plaintext (dev servers)
+---   plaintext, remote     -> REFUSED (the real server encrypts; this is a
+---                            downgrade or a misconfiguration)
+function Client:_onHelloAck(m)
+  local loop = isLoopback(self._connHost or "")
+  if m.spub then
+    local pin = self.pin and b64maybe(self.pin) or nil
+    local sess = self._hs and Tunnel.finish(self._hs, b64maybe(m.spub), b64maybe(m.sig), pin)
+    self._hs = nil
+    if not sess then
+      self.status = "Server identity check FAILED"
+      self:log("! server identity check failed (wrong pin or interception)")
+      self:disconnect()
+      return
+    end
+    self.net.tunnel = sess
+    if pin then
+      self:log("Encrypted; server identity verified.")
+    else
+      self:log(loop and "Encrypted (loopback, no pin)."
+        or "Encrypted; server UNVERIFIED (no pin configured).")
+    end
+    self:_beginAuth()
+  elseif loop then
+    self:log("Plaintext loopback connection (dev server).")
+    self:_beginAuth()
+  else
+    self.status = "Server refused encryption"
+    self:log("! remote server would not encrypt; refusing to continue")
+    self:disconnect()
+  end
+end
+
 function Client:_dispatch(m)
   local t = m.type
   if t == "hello_ack" then
     -- Beta refuses to speak to an age-verification-demanding server: there is
     -- no such message in the protocol, and if one ever appears we bail.
-    self:_beginAuth()
+    self:_onHelloAck(m)
   elseif t == "pow" then
     self._powId = m.id
     self.powCo = Crypto.powSolver(m.challenge, m.bits)
@@ -247,6 +319,8 @@ function Client:_dispatch(m)
   elseif t == "channel_joined" then
     self.channel = m.channel
     self:log("Joined channel " .. tostring(m.channel))
+  elseif t == "pong" then
+    -- keepalive answer; nothing to do
   elseif t == "resync" then
     if m.x then self.x = m.x end
     if m.y then self.y = m.y end

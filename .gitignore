@@ -1,3 +1,6 @@
 *.zip
 .DS_Store
 dev-scratch/
+# Local server profile (address + identity pin) -- distributed privately by
+# the operator, never part of the repo.
+config.lua

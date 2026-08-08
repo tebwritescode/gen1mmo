@@ -11,7 +11,10 @@ local Json = GEN1MMO_INCLUDE("src/json.lua")
 local Net = {}
 Net.__index = Net
 
-local MAX_LINE = 8192 -- mirror the server's reader ceiling; drop a bloated peer
+-- The server's wire ceiling is 8192 per line; sealed frames are base64 over
+-- ciphertext+tag (4/3 overhead), so tolerate up to 16384 inbound before
+-- declaring the peer bloated.
+local MAX_LINE = 16384
 
 function Net.new()
   return setmetatable({
@@ -22,6 +25,7 @@ function Net.new()
     connected = false,
     closed = false,
     error = nil,
+    tunnel = nil, -- set after the handshake; then EVERY line both ways is sealed
   }, Net)
 end
 
@@ -47,10 +51,13 @@ function Net:connect(host, port)
   return true
 end
 
---- Queue a table to send (encoded + newline).
+--- Queue a table to send (encoded, sealed when the tunnel is up, + newline).
 function Net:send(msg)
   if not self.connected then return end
-  self.txBuf = self.txBuf .. Json.encode(msg) .. "\n"
+  local line = Json.encode(msg)
+  if self.tunnel then line = self.tunnel:seal(line) end
+  self.txBuf = self.txBuf .. line .. "\n"
+  self.lastTx = love.timer and love.timer.getTime() or os.clock()
 end
 
 --- Pump: flush outbound, drain inbound, split lines, decode. Call every frame.
@@ -95,6 +102,15 @@ function Net:update()
     local line = self.rxBuf:sub(1, nl - 1)
     self.rxBuf = self.rxBuf:sub(nl + 1)
     if #line > 0 then
+      if self.tunnel then
+        -- A sealed line that will not open is tampering or desync; both are
+        -- fatal, exactly like the server's side of the same check.
+        line = self.tunnel:open(line)
+        if line == nil then
+          self:_die("encrypted frame failed to open")
+          return
+        end
+      end
       local msg = Json.decode(line)
       if type(msg) == "table" and msg.type then
         self.inbox[#self.inbox + 1] = msg

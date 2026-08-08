@@ -29,11 +29,25 @@ local client = Client.new(mod)
 -- player points it at a server). Default is localhost for self-hosting/testing.
 client.host = mod.save:get("server_host", "127.0.0.1")
 client.port = mod.save:get("server_port", 7878)
+client.pin = mod.save:get("server_pin", nil)
 function client:setServer(host, port)
   self.host = host
   self.port = tonumber(port) or 7878
   mod.save:set("server_host", self.host)
   mod.save:set("server_port", self.port)
+end
+
+-- Optional drop-in config (config.lua beside main.lua, NEVER committed): a
+-- server operator hands players/testers a tiny file with their address and
+-- identity pin. Shape: return { host = "...", port = 7878, pin = "base64" }.
+-- It overrides the saved values above; absence is completely fine.
+do
+  local ok, cfg = pcall(GEN1MMO_INCLUDE, "config.lua")
+  if ok and type(cfg) == "table" then
+    if cfg.host then client.host = tostring(cfg.host) end
+    if cfg.port then client.port = tonumber(cfg.port) or client.port end
+    if cfg.pin then client.pin = tostring(cfg.pin) end
+  end
 end
 
 installScreen(mod, client)
@@ -78,4 +92,7 @@ mod.hooks:wrap("movement.collision", function(next, allowed, ctx)
   return allowed
 end)
 
-return client -- exported for other mods / debugging
+-- Publish the client for other mods / tooling. The loader reads mod.exports;
+-- a chunk's return value is NOT what dependents see (verified in-engine).
+mod.exports = client
+return client
