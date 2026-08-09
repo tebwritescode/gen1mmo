@@ -83,7 +83,9 @@ Report bad actors in-game; repeat offenders forfeit their name.
 | Live player sync, nametags, walk-through collision | ✅ |
 | Chat (3 scopes), tunable overlay, native keyboard, filter | ✅ |
 | Looks: body + 8 rendered skin tones; hair/outfit catalog | ✅ |
-| Friends, whispers, player interact menu | ✅ |
+| Friends, whispers (friends-only), player interact menu | ✅ |
+| Trainer cards: badges, money, team, history badges, titles | ✅ |
+| Emotes (heart / wave / fist) dropped as world breadcrumbs | ✅ |
 | Encrypted transport with pinned server identity | ✅ |
 | Accounts, recovery codes, in-game reports, moderation | ✅ |
 | Hair/outfit sprite art, trading, more swag | 🔜 |
@@ -91,3 +93,5 @@ Report bad actors in-game; repeat offenders forfeit their name.
 ## Licence
 
 MIT. Original code only — no ROM-derived content ships in this repository.
+Emote icons are [Twemoji](https://github.com/jdecked/twemoji) (CC-BY 4.0);
+see `assets/emotes/CREDITS.txt`.

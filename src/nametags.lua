@@ -20,6 +20,23 @@ function Nametags.install(mod, client)
 
   local Overlay = GEN1MMO_INCLUDE("src/overlay.lua")
 
+  -- Twemoji breadcrumb icons (assets/emotes/, CC-BY -- CREDITS.txt),
+  -- decoded once from the pack's own bytes; false = tried and failed
+  local emoteImages = {}
+  local EMOTE_FILES = { [0] = "heart", [1] = "wave", [2] = "fist" }
+  local function emoteImg(kind)
+    local key = EMOTE_FILES[tonumber(kind) or 0] or "heart"
+    if emoteImages[key] == nil then
+      local ok, img = pcall(function()
+        local bytes = assert(mod:read("assets/emotes/" .. key .. ".png"))
+        local fd = love.filesystem.newFileData(bytes, key .. ".png")
+        return love.graphics.newImage(love.image.newImageData(fd))
+      end)
+      emoteImages[key] = ok and img or false
+    end
+    return emoteImages[key] or nil
+  end
+
   -- True when any world-owning render pipeline is at level > 0. Checked
   -- per frame: renderer.worldOverride is already consumed and CLEARED by
   -- the time render.hud fires, so it cannot be the gate.
@@ -172,6 +189,48 @@ function Nametags.install(mod, client)
         end
         return wox + (math.floor(e.px) + 8 - cam.x) * fx,
                woy + (math.floor(e.py) - 6 - cam.y) * fy
+      end
+
+      -- Emote breadcrumbs: dropped at the emitter's world position, they
+      -- STAY PUT as players walk on and fade out. Icons are Twemoji PNGs
+      -- bundled in the pack (assets/emotes/, CC-BY -- see CREDITS.txt),
+      -- drawn straight on the world, no bubble box.
+      local now = love.timer.getTime()
+      local drops = client.emoteDrops
+      if drops then
+        local mapNow = tostring(client.mapId or "")
+        for i = #drops, 1, -1 do
+          local d = drops[i]
+          if now > (d.until_ or 0) then
+            table.remove(drops, i)
+          elseif d.map == mapNow then
+            local img = emoteImg(d.kind)
+            if img then
+              local a = math.min(1, (d.until_ - now) / 3) -- 3s fade tail
+              local x, y, s
+              if pipeActive and dsvV3 and dsvV3.vp then
+                -- fixed world point, hovering mid-tile above the ground
+                local sx, sy, cw = voxelProject(game,
+                  math.floor(d.x) + 8, (d.gh or 0) + 10, math.floor(d.y) + 8, vp)
+                if sx then
+                  local fov = (dsvV3 and dsvV3.fovY) or 0.5
+                  local h = 12 * (vp.height * 0.5) / (math.tan(fov / 2) * cw)
+                  h = math.max(8, math.min(h, vp.height * 0.25))
+                  x, y, s = sx, sy, h / img:getHeight()
+                end
+              else
+                x = wox + (math.floor(d.x) + 8 - cam.x) * fx
+                y = woy + (math.floor(d.y) - cam.y) * fy
+                s = (14 * fy) / img:getHeight()
+              end
+              if x then
+                lg.setColor(1, 1, 1, a)
+                lg.draw(img, x - img:getWidth() * s / 2, y - img:getHeight() * s, 0, s, s)
+              end
+            end
+          end
+        end
+        lg.setColor(1, 1, 1, 1)
       end
 
       local function tag(name, e, self_)

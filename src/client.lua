@@ -36,8 +36,80 @@ function Client.new(mod)
     lastError = nil,
     pingMs = nil,          -- measured round-trip, for the server-info screen
     stats = nil,           -- last "stats" reply
+    emoteDrops = {},       -- breadcrumbs: { map, x, y, gh, kind, until_ }
+    friends = {},          -- name -> true, made friendships this session
+    pendingFriends = {},   -- name -> true, inbound requests awaiting accept
   }, Client)
   return self
+end
+
+-- ---------------------------------------------------------------- emotes
+
+Client.EMOTES = { [0] = "Heart", [1] = "Wave", [2] = "Fist" }
+
+-- Emotes are BREADCRUMBS (operator direction): dropped in the world at
+-- the emitter's position, they stay put as players walk on, fading out.
+local EMOTE_LIFE = 5 -- seconds; the renderer fades the last stretch
+
+function Client:dropEmote(kind, px, py, gh)
+  local now = love.timer and love.timer.getTime() or os.clock()
+  local drops = self.emoteDrops
+  drops[#drops + 1] = {
+    map = tostring(self.mapId or ""), x = px, y = py, gh = gh or 0,
+    kind = tonumber(kind) or 0, until_ = now + EMOTE_LIFE,
+  }
+  if #drops > 24 then table.remove(drops, 1) end
+end
+
+function Client:emote(kind)
+  kind = tonumber(kind) or 0
+  -- your own drop lands immediately, network or not
+  pcall(function()
+    local Game = require("src.core.Game")
+    local p = Game.overworld and Game.overworld.player
+    if p and p.px then self:dropEmote(kind, p.px, p.py, p.gh) end
+  end)
+  if self:canSend() and self.features and self.features.emote then
+    self.net:send({ type = "emote", kind = kind })
+  end
+end
+
+-- ------------------------------------------------------------- milestones
+
+--- Game moments worth a collectible history badge. Detected from the
+--- local save, claimed once each (server keeps the first day). Never a
+--- public feed -- they surface only on the trainer card.
+function Client:checkMilestones()
+  if not (self:canSend() and self.features and self.features.milestone) then return end
+  pcall(function()
+    local Game = require("src.core.Game")
+    local save = Game.save
+    if not save then return end
+    local earned = {}
+    local badges = require("src.inventory.Badges").count(Game.data, save)
+    for i = 1, math.min(badges, 8) do earned[#earned + 1] = "badge_" .. i end
+    if save.hallOfFame and #save.hallOfFame > 0 then earned[#earned + 1] = "hof" end
+    local owned = 0
+    for _ in pairs((save.pokedex and save.pokedex.owned) or {}) do owned = owned + 1 end
+    if owned >= 50 then earned[#earned + 1] = "dex_50" end
+    if owned >= 100 then earned[#earned + 1] = "dex_100" end
+    if owned >= 150 then earned[#earned + 1] = "dex_150" end
+    for _, mon in ipairs(save.party or {}) do
+      if (tonumber(mon.level) or 0) >= 100 then earned[#earned + 1] = "mon_100" break end
+    end
+    local fresh = 0
+    for _, id in ipairs(earned) do
+      if not self.mod.save:get("ms_" .. id, false) then
+        self.net:send({ type = "milestone", id = id })
+        self.mod.save:set("ms_" .. id, true)
+        fresh = fresh + 1
+      end
+    end
+    -- one line even for the first-login burst (an endgame save claims
+    -- a dozen at once; a dozen chat lines is noise)
+    if fresh == 1 then self:log("History badge earned!")
+    elseif fresh > 1 then self:log(fresh .. " history badges earned!") end
+  end)
 end
 
 -- ------------------------------------------------------------- own sprite
@@ -300,6 +372,10 @@ function Client:addFriend(name)
   if self:canSend() then self.net:send({ type = "friend_request", to = name }) end
 end
 
+function Client:acceptFriend(name)
+  if self:canSend() then self.net:send({ type = "friend_accept", from = name }) end
+end
+
 function Client:report(accused, category, messages)
   if self:canSend() then
     self.net:send({ type = "report", accused = accused, category = category, messages = messages })
@@ -358,6 +434,7 @@ function Client:onMap(mapId)
   self:applyOwnSprite()
   -- card data drifts as you play (badges, levels); refresh per map
   self:sendProfile()
+  self:checkMilestones()
   if self:canSend() then
     -- Trigger a re-home + fresh roster for the new map.
     self.net:send({ type = "move", x = self.x, y = self.y, dir = self.dir, map = tostring(mapId) })
@@ -520,9 +597,11 @@ function Client:_dispatch(m)
   elseif t == "whisper" then
     self:log(string.format("(whisper) %s: %s", tostring(m.from), Filter.display(m.payload or "")))
   elseif t == "friend_request" then
-    self:log(tostring(m.from) .. " wants to be friends (open Friends to accept).")
-    self._pendingFriend = m.from
+    self:log(tostring(m.from) .. " wants to be friends (menu: Accept).")
+    self.pendingFriends[tostring(m.from)] = true
   elseif t == "friend_added" then
+    self.friends[tostring(m.name)] = true
+    self.pendingFriends[tostring(m.name)] = nil
     self:log("You and " .. tostring(m.name) .. " are now friends.")
   elseif t == "reported" then
     self:log("Report submitted. Thank you.")
@@ -549,6 +628,11 @@ function Client:_dispatch(m)
   elseif t == "card" then
     self.cards = self.cards or {}
     self.cards[tostring(m.name)] = m
+  elseif t == "player_emote" then
+    -- drop it where that player is STANDING right now; if they are not
+    -- spawned here (other map mid-transition) there is nowhere to drop
+    local e = self.players:entityOf(tostring(m.name))
+    if e and e.px then self:dropEmote(m.kind, e.px, e.py, e.gh) end
   elseif t == "resync" then
     if m.x then self.x = m.x end
     if m.y then self.y = m.y end
@@ -574,6 +658,7 @@ function Client:_dispatch(m)
       spam = "Repeated message dropped",
       link_blocked = "Links are not allowed",
       not_found = "No such player here",
+      not_friends = "Friends only - they must accept your request first",
     }
     local text = FRIENDLY[tostring(m.code)]
       or (tostring(m.code) .. (m.reason and (" (" .. m.reason .. ")") or ""))

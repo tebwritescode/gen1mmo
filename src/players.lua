@@ -153,6 +153,15 @@ function Players:setSkin(name, skin)
   self:_spawn(name, r.x, r.y, r.dir, skin)
 end
 
+--- The live entity behind one remote player, or nil (despawned, other map).
+function Players:entityOf(name)
+  local r = self.remote[name]
+  if not r then return nil end
+  local ok, h = pcall(function() return self.mod.world:npc(self.mapId, r.npcId) end)
+  if ok and h and h.npc then return h.npc end
+  return nil
+end
+
 --- Iterate live remote entities: callback(name, npcEntity, record).
 --- For the nametag pass; entities can be nil mid-respawn -- skipped.
 function Players:eachEntity(fn)

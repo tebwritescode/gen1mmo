@@ -3,15 +3,22 @@
 Operator-approved directions (2026-08-09). Not promises of order; the
 privacy constitution applies to every one of them.
 
+## Shipped in v1.4.0
+
+- **Milestone history badges** — badges 1–8, Hall of Fame, Dex 50/100/150,
+  a level-100 partner: detected from the save, persisted per account,
+  shown as a "Hist" line on the trainer card. Never a public feed.
+- **Emotes** — heart, waving, fist. Dropped as world breadcrumbs at the
+  spot they were made (Twemoji icons, assets/emotes/CREDITS.txt): they
+  stay in place as players walk on and fade out.
+- **Titles on the trainer card** — best milestone becomes the card title
+  (CHAMPION, DEX MASTER, CENTURION, …).
+- **Friends-only whisper** — whispering requires a friend request the
+  other player ACCEPTED (server-enforced; the card menu tells the truth:
+  Add friend → Accept friend → Whisper).
+
 ## Approved
 
-- **Milestone history badges** — story moments (gym beaten, legendary
-  caught, league cleared) recorded as COLLECTIBLE badges on the player's
-  trainer card. Explicitly NOT public feed notifications — too spammy.
-- **Emotes** — expression bubbles over the head: **heart, waving, fist**
-  (engine emote-bubble machinery already exists).
-- **Titles on the trainer card** — earnable labels shown under the name
-  ("8 badges club", early-player titles, milestone titles).
 - **Walking leaderboards** — steps taken, maps visited, players met;
   aggregate counts in Server info. Counts and classes only.
 - **Photo mode** — freeze + hide HUD for group screenshots.

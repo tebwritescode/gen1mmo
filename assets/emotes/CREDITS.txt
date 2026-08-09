@@ -1,0 +1,5 @@
+Emote icons (heart.png, wave.png, fist.png) are from Twemoji
+(https://github.com/jdecked/twemoji), copyright Twitter, Inc and other
+contributors, licensed under CC-BY 4.0
+(https://creativecommons.org/licenses/by/4.0/).
+Renamed from 2764.png, 1f44b.png, 270a.png; otherwise unmodified.

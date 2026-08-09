@@ -1,7 +1,7 @@
 {
   "id": "gen1mmo",
   "name": "Gen1MMO",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "assets_transforms": "transforms.lua",
   "author": "gen1mmo",
   "description": "PokeMMO-style online play for Gen1Recomp: see other trainers walk the world, chat, customise your look, and make friends. Privacy-first server, no personal data collected.",

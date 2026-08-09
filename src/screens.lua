@@ -63,13 +63,29 @@ return function(mod, client)
         return items
       end
 
+      -- inbound friend requests surface as one menu row each, so an
+      -- accept is possible even when the requester has wandered off
+      local function withPendingRows(items)
+        local names = {}
+        for name in pairs(client.pendingFriends or {}) do names[#names + 1] = name end
+        table.sort(names)
+        for i = #names, 1, -1 do
+          local name = names[i]
+          table.insert(items, 2, { "Accept: " .. name, function()
+            client:acceptFriend(name)
+          end })
+        end
+        return items
+      end
+
       local function menuItems()
         if client.state == "playing" then
-          return withRecoveryRow {
+          return withPendingRows(withRecoveryRow {
             { "Chat", function() self.view = "chat" end },
             { "Say something", function()
               self:enterText("SAY:", false, function(t) client:say(self.scope, t) end)
             end },
+            { "Emote", function() self.view = "emote" end },
             { "Change look", function() self.view = "look" end },
             { "Add friend", function()
               self:enterText("FRIEND:", false, function(t) client:addFriend(t) end)
@@ -96,7 +112,7 @@ return function(mod, client)
               mod.save:set("geek_stats", client.geekStats)
             end },
             { "Disconnect", function() client:disconnect() end },
-          }
+          })
         else
           return withRecoveryRow {
             { "Register (new)", function()
@@ -257,21 +273,31 @@ return function(mod, client)
       end
 
       -- the A-press-on-a-player action menu
+      -- Whisper is FRIENDS ONLY (server enforces it; the menu just tells
+      -- the truth): strangers get "Add friend", a pending inbound request
+      -- gets "Accept friend", and only a made friendship shows "Whisper".
       local function playerItems()
         local who = self.playerTarget or "?"
-        return {
-          { "Whisper", function()
+        local items = {}
+        if client.friends and client.friends[who] then
+          items[#items + 1] = { "Whisper", function()
             self:enterText("TO " .. who .. ":", false, function(t)
               client:whisper(who, t)
               client:log("(to " .. who .. ") " .. t)
             end)
-          end },
-          { "Add friend", function()
+          end }
+        elseif client.pendingFriends and client.pendingFriends[who] then
+          items[#items + 1] = { "Accept friend", function()
+            client:acceptFriend(who)
+          end }
+        else
+          items[#items + 1] = { "Add friend", function()
             client:addFriend(who)
             client:log("Friend request sent to " .. who .. ".")
-          end },
-          { "Close", function() game.stack:pop() end },
-        }
+          end }
+        end
+        items[#items + 1] = { "Close", function() game.stack:pop() end }
+        return items
       end
 
       local function updatePlayer()
@@ -285,6 +311,24 @@ return function(mod, client)
         end
         if input:wasPressed("a") and items[self.cursor] then items[self.cursor][2]() end
         if input:wasPressed("b") then game.stack:pop() end
+      end
+
+      -- emote picker: fire and pop straight back to the world, so the
+      -- bubble is visible the moment it exists
+      local EMOTE_ROWS = { { "Heart", 0 }, { "Wave", 1 }, { "Fist", 2 } }
+      local function updateEmote()
+        if self.cursor > #EMOTE_ROWS then self.cursor = 1 end
+        if input:wasPressed("up") then
+          self.cursor = self.cursor > 1 and self.cursor - 1 or #EMOTE_ROWS
+        end
+        if input:wasPressed("down") then
+          self.cursor = self.cursor < #EMOTE_ROWS and self.cursor + 1 or 1
+        end
+        if input:wasPressed("a") then
+          client:emote(EMOTE_ROWS[self.cursor][2])
+          game.stack:pop()
+        end
+        if input:wasPressed("b") then self.view = "menu" end
       end
 
       local function updateStats()
@@ -404,6 +448,7 @@ return function(mod, client)
         elseif self.view == "look" then updateLook()
         elseif self.view == "player" then updatePlayer()
         elseif self.view == "stats" then updateStats()
+        elseif self.view == "emote" then updateEmote()
         elseif self.view == "chatbox" then updateChatbox() end
       end
 
@@ -481,6 +526,15 @@ return function(mod, client)
           end
         elseif self.view == "stats" then
           self.view = "menu"
+        elseif self.view == "emote" then
+          for i = 1, #EMOTE_ROWS do
+            local y = 36 + (i - 1) * 14
+            if cy >= y - 3 and cy <= y + 11 then
+              client:emote(EMOTE_ROWS[i][2])
+              game.stack:pop()
+              return
+            end
+          end
         elseif self.view == "chatbox" then
           for i = 1, #CHATBOX_ROWS do
             local y = 28 + (i - 1) * 14
@@ -645,12 +699,35 @@ return function(mod, client)
         Font.draw("L/R:change A:apply", 6, 128)
       end
 
+      -- best milestone becomes the TITLE under the name
+      local TITLES = {
+        { "hof", "CHAMPION" }, { "dex_150", "DEX MASTER" },
+        { "mon_100", "CENTURION" }, { "badge_8", "8 BADGES" },
+        { "dex_100", "DEX 100" }, { "badge_4", "4 BADGES" },
+        { "dex_50", "DEX 50" }, { "badge_1", "ROOKIE" },
+      }
+      local function titleFor(milestones)
+        local have = {}
+        for _, ms in ipairs(milestones or {}) do have[tostring(ms.id)] = true end
+        for _, t in ipairs(TITLES) do
+          if have[t[1]] then return t[2] end
+        end
+        return nil
+      end
+
       local function drawPlayer()
         Font.drawBox(0, 0, 20, 18)
         local who = tostring(self.playerTarget or "?")
         Font.draw(who, 16, 6)
         -- trainer card: what they carry, what they've done
         local card = client.cards and client.cards[who]
+        local title = card and titleFor(card.milestones)
+        if title then
+          -- right-aligned to the frame, never past the name, never clipped
+          local tx = math.max(16 + 8 * #who + 8, 152 - 8 * #title)
+          local fit = math.floor((152 - tx) / 8)
+          if fit > 2 then Font.draw(title:sub(1, fit), tx, 6) end
+        end
         local prof = card and card.profile
         if prof then
           Font.draw(("Badges:%d"):format(tonumber(prof.badges) or 0), 12, 18)
@@ -666,12 +743,43 @@ return function(mod, client)
         else
           Font.draw("...", 12, 24)
         end
+        -- history badges: the collectible record. One 17-column line, so
+        -- show the count plus the most impressive marks first, not the
+        -- first 4 the server happened to list.
+        if card and card.milestones and #card.milestones > 0 then
+          local earned = {}
+          for _, ms in ipairs(card.milestones) do earned[tostring(ms.id)] = true end
+          local line = ("Hist %d:"):format(#card.milestones)
+          for _, m in ipairs({
+            { "hof", "HOF" }, { "dex_150", "D150" }, { "mon_100", "C100" },
+            { "badge_8", "B8" }, { "dex_100", "D100" }, { "badge_7", "B7" },
+            { "badge_6", "B6" }, { "badge_5", "B5" }, { "dex_50", "D50" },
+            { "badge_4", "B4" }, { "badge_3", "B3" }, { "badge_2", "B2" },
+            { "badge_1", "B1" },
+          }) do
+            if earned[m[1]] and #line + 1 + #m[2] <= 17 then
+              line = line .. " " .. m[2]
+            end
+          end
+          Font.draw(line, 12, 88)
+        end
         local items = playerItems()
         for i, it in ipairs(items) do
           local y = 96 + (i - 1) * 12
           Font.draw(it[1], 24, y)
           if self.cursor == i then Font.drawCode(Theme.cursor, 16, y) end
         end
+      end
+
+      local function drawEmote()
+        Font.drawBox(0, 0, 20, 18)
+        Font.draw("EMOTE", 16, 8)
+        for i, row in ipairs(EMOTE_ROWS) do
+          local y = 36 + (i - 1) * 14
+          Font.draw(row[1], 24, y)
+          if self.cursor == i then Font.drawCode(Theme.cursor, 16, y) end
+        end
+        Font.draw("A:send B:back", 12, 128)
       end
 
       local function drawStats()
@@ -749,6 +857,7 @@ return function(mod, client)
         elseif self.view == "look" then drawLook()
         elseif self.view == "player" then drawPlayer()
         elseif self.view == "stats" then drawStats()
+        elseif self.view == "emote" then drawEmote()
         elseif self.view == "chatbox" then drawChatbox() end
       end
 
