@@ -12,19 +12,32 @@
 
 local Skins = {}
 
--- Labels mirror catalog/cosmetics.json in the server repo (catalogVersion 2).
+-- Labels mirror catalog/cosmetics.json in the server repo (catalogVersion 3).
+-- The BODY is one of the game's own people sheets (the skins overhaul);
+-- names must stay aligned with Tonegen.ROSTER, index for index.
 Skins.catalog = {
-  bodies      = { "Boy", "Girl" },
+  bodies      = { "Red", "Brunette", "Blue", "Girl", "Cool F", "Cool M",
+                  "Beauty", "Youngster", "Kid", "Hiker", "Biker", "Fisher",
+                  "Sailor", "Rocker", "Scientist", "Gentleman" },
   skinTones   = { "Porcelain", "Fair", "Warm", "Olive", "Bronze", "Umber", "Deep", "Ebony" },
   hairStyles  = { "Cropped", "Cap Hair", "Tousled", "Ponytail", "Twin Tails",
-                  "Bob", "Long", "Spiked", "Curls", "Buzzed" },
-  hairColors  = { "Black", "Dark Brown", "Brown", "Auburn", "Ginger", "Blonde",
-                  "Platinum", "Silver", "Crimson", "Ocean", "Forest", "Violet" },
+                  "Bob", "Long", "Spiked", "Curls", "Buzzed" }, -- wire-compat only
+  hairColors  = { "Black", "Brown", "Tan", "Red", "Orange", "Yellow",
+                  "White", "Gray", "Crimson", "Blue", "Green", "Violet" }, -- = HEAD color
   outfits     = { "Adventurer", "Explorer", "Hiker", "Ace", "Nightfall",
-                  "Sunburst", "Meadow", "Ember" },
-  hats        = { "No", "Yes" },
+                  "Sunburst", "Meadow", "Ember" }, -- wire-compat only
+  hats        = { "No", "Yes" },                   -- wire-compat only
   pieceColors = { "Black", "Brown", "Tan", "Red", "Orange", "Yellow",
                   "White", "Gray", "Crimson", "Blue", "Green", "Violet" },
+}
+
+-- roster sprite ids, index-aligned with catalog.bodies (base/fallback look)
+Skins.ROSTER_SPRITES = {
+  [0] = "SPRITE_RED", "SPRITE_BRUNETTE_GIRL", "SPRITE_BLUE", "SPRITE_GIRL",
+  "SPRITE_COOLTRAINER_F", "SPRITE_COOLTRAINER_M", "SPRITE_BEAUTY",
+  "SPRITE_YOUNGSTER", "SPRITE_LITTLE_GIRL", "SPRITE_HIKER", "SPRITE_BIKER",
+  "SPRITE_FISHER", "SPRITE_SAILOR", "SPRITE_ROCKER", "SPRITE_SCIENTIST",
+  "SPRITE_GENTLEMAN",
 }
 
 Skins.DEFAULT = { body = 0, skin = 1, hair = 1, hairColor = 0, outfit = 0,
@@ -58,12 +71,9 @@ function Skins.sanitize(t)
 end
 
 --- Base engine sprite for a body (always present in the cache registry).
---- The Girl body rides the brunette-girl walker: a real feminine
---- silhouette with actual hair, straight from the game's own sheets.
 function Skins.baseSprite(skin)
   skin = skin or Skins.DEFAULT
-  if (tonumber(skin.body) or 0) == 1 then return "SPRITE_BRUNETTE_GIRL" end
-  return "SPRITE_RED"
+  return Skins.ROSTER_SPRITES[tonumber(skin.body) or 0] or "SPRITE_RED"
 end
 
 --- Preferred overworld sprite ids for a skin, best first: the full
@@ -74,14 +84,9 @@ end
 --- must never make a player invisible.
 function Skins.spriteCandidates(skin)
   skin = Skins.sanitize(skin)
-  local list = {}
-  if skin.outfit > 0 then
-    list[#list + 1] = ("G1MMO_B%d_T%d_O%d"):format(skin.body, skin.skin, skin.outfit)
-  end
-  list[#list + 1] = ("G1MMO_B%d_T%d"):format(skin.body, skin.skin)
-  list[#list + 1] = Skins.baseSprite(skin)
-  list[#list + 1] = "SPRITE_RED"
-  return list
+  -- spawn targets only: the full-tuple runtime def is swapped on right
+  -- after; the roster's own sheet is the perfect-looking fallback
+  return { Skins.baseSprite(skin), "SPRITE_RED" }
 end
 
 --- Back-compat single-id accessor (the base body sheet).

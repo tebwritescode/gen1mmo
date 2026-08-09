@@ -344,13 +344,13 @@ return function(mod, client)
       -- field, catalog list, short row label -- one source for update,
       -- draw, and tap (legacy "outfit" stays in the tuple, no row: the
       -- per-piece colors supersede it)
+      -- skins overhaul: BODY picks one of the game's own people sheets;
+      -- the color rows repaint that sheet's regions. hair/hat/outfit ride
+      -- the wire for compatibility but have no rows.
       local CATS = {
         { "body",      "bodies",      "Body" },
         { "skin",      "skinTones",   "Tone" },
-        { "hair",      "hairStyles",  "Hair" },
-        { "hairColor", "hairColors",  "HairC" },
-        { "hat",       "hats",        "Hat" },
-        { "hatColor",  "pieceColors", "HatC" },
+        { "hairColor", "pieceColors", "Head" },
         { "shirt",     "pieceColors", "Shirt" },
         { "pants",     "pieceColors", "Pants" },
         { "pack",      "pieceColors", "Pack" },
@@ -506,8 +506,8 @@ return function(mod, client)
           self:enterText("SAY:", false, function(t) client:say(self.scope, t) end)
         elseif self.view == "look" then
           for i, c in ipairs(CATS) do
-            local y = 20 + (i - 1) * 11
-            if cy >= y - 2 and cy <= y + 8 and cx < 120 then
+            local y = 22 + (i - 1) * 13
+            if cy >= y - 2 and cy <= y + 10 and cx < 152 then
               self.lookIndex = i
               local list = Skins.catalog[c[2]]
               local step = (cx >= 64) and 1 or -1    -- tap right side = next
@@ -615,12 +615,12 @@ return function(mod, client)
         for i, c in ipairs(CATS) do
           local list = Skins.catalog[c[2]]
           local val = list[(client.skin[c[1]] or 0) + 1] or "?"
-          local y = 20 + (i - 1) * 11
-          -- compact rows: keep clear of the preview box on the right
-          Font.draw((c[3] .. ": " .. val):sub(1, 13), 16, y)
+          local y = 22 + (i - 1) * 13
+          Font.draw((c[3] .. ": " .. val):sub(1, 17), 16, y)
           if self.lookIndex == i then Font.drawCode(Theme.cursor, 8, y) end
         end
-        -- live mannequin: your exact look, turning and stepping in place
+        -- live mannequin, ALL FOUR SIDES at once, stepping in place --
+        -- what you will look like from every direction, no guessing
         pcall(function()
           local Tonegen = GEN1MMO_INCLUDE("src/tonegen.lua")
           local def = Tonegen.defFor(client.skin)
@@ -630,15 +630,17 @@ return function(mod, client)
             self._previewImage = def.image
           end
           local tick = self._lookTick or 0
-          local DIRS = { "down", "left", "up", "right" }
-          local facing = DIRS[(math.floor(tick / 30) % 4) + 1]
-          local phase = (math.floor(tick / 15) % 2 == 0) and 0 or 1
-          local flip = math.floor(tick / 30) % 2 == 0
+          local phase = (math.floor(tick / 16) % 2 == 0) and 0 or 1
+          local flip = math.floor(tick / 32) % 2 == 0
           local lg = love.graphics
           lg.setColor(0, 0, 0, 1)
-          lg.rectangle("line", 124.5, 24.5, 27, 27)
+          lg.rectangle("line", 34.5, 100.5, 91, 23)
           lg.setColor(1, 1, 1, 1)
-          self._previewSR:draw(130, 30, 0, 0, facing, phase, flip)
+          local DIRS = { "down", "left", "up", "right" }
+          for d, facing in ipairs(DIRS) do
+            self._previewSR:draw(40 + (d - 1) * 22, 104, 0, 0, facing, phase,
+              facing == "right" and true or (phase == 1 and flip))
+          end
         end)
         Font.draw("L/R:change A:apply", 6, 128)
       end
