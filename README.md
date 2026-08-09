@@ -8,7 +8,7 @@ world you already play fills with real people. Chat, show off your look,
 make friends. One official server runs 24/7 and is already configured —
 there is nothing to set up.
 
-> **Beta.** Accounts are a name and a password. No email, ever.
+> Accounts are a name and a password. No email, ever.
 
 ## Your save is your character
 
