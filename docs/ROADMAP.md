@@ -3,6 +3,19 @@
 Operator-approved directions (2026-08-09). Not promises of order; the
 privacy constitution applies to every one of them.
 
+## Shipped in v1.5.0
+
+- **43 history badges** driven by real game triggers: catches (count,
+  type, ball used, legendaries, fishing), item usage (Potion, Super
+  Potion, big heals, Revive), money milestones, full party, evolution,
+  trading, boulder pushing, 10,000 steps — plus the original story set.
+  Earned offline too; synced to the account on the next connect.
+- **My history screen** — the collectible record, browsable in-game
+  (START → GEN1MMO → My history).
+- **More titles** — TYCOON, COLLECTOR, LEGEND, WANDERER, CATCHER join
+  CHAMPION and the rest; long names push the title onto the Hist line
+  instead of clipping.
+
 ## Shipped in v1.4.0
 
 - **Milestone history badges** — badges 1–8, Hall of Fame, Dex 50/100/150,

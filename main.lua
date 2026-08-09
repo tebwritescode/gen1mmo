@@ -99,6 +99,7 @@ installScreen(mod, client)
 Overlay.install(mod, client)
 Nametags.install(mod, client)
 GEN1MMO_INCLUDE("src/geekstats.lua").install(mod, client)
+GEN1MMO_INCLUDE("src/achievements.lua").install(mod, client)
 
 -- Tone sheets, twice-guaranteed: the install transform derives them, and
 -- Tonegen regenerates any sheet that STILL cannot load, at runtime, from

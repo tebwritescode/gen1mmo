@@ -76,11 +76,49 @@ end
 
 -- ------------------------------------------------------------- milestones
 
---- Game moments worth a collectible history badge. Detected from the
---- local save, claimed once each (server keeps the first day). Never a
---- public feed -- they surface only on the trainer card.
-function Client:checkMilestones()
+local Ach -- src/achievements.lua, loaded lazily (no load-order knot)
+local function achievements()
+  Ach = Ach or GEN1MMO_INCLUDE("src/achievements.lua")
+  return Ach
+end
+
+--- Claim one history badge: earned is a LOCAL fact first (flag in mod
+--- save, works fully offline), then persisted server-side when a
+--- connection exists -- syncMilestones picks up whatever was earned
+--- offline. Returns true only on a first-time claim.
+function Client:claimMilestone(id, quiet)
+  id = tostring(id)
+  if self.mod.save:get("ms_" .. id, false) then return false end
+  self.mod.save:set("ms_" .. id, true)
+  if not quiet then
+    self:log("History badge: " .. (achievements().NAMES[id] or id))
+  end
+  if self:canSend() and self.features and self.features.milestone then
+    self.net:send({ type = "milestone", id = id })
+    self.mod.save:set("ms_sent_" .. id, true)
+  end
+  return true
+end
+
+--- Push every earned-but-never-sent badge to the server (offline play,
+--- pre-sync versions). Resends are harmless: the server INSERT OR
+--- IGNOREs, first day sticks.
+function Client:syncMilestones()
   if not (self:canSend() and self.features and self.features.milestone) then return end
+  for _, id in ipairs(achievements().IDS) do
+    if self.mod.save:get("ms_" .. id, false)
+      and not self.mod.save:get("ms_sent_" .. id, false) then
+      self.net:send({ type = "milestone", id = id })
+      self.mod.save:set("ms_sent_" .. id, true)
+    end
+  end
+end
+
+--- Save-scan badges: whatever the save already proves (badges, dex,
+--- money, party), claimed quietly with ONE summary line -- an endgame
+--- save claims a dozen at once and a dozen chat lines is noise. The
+--- moment-driven badges live in src/achievements.lua instead.
+function Client:checkMilestones()
   pcall(function()
     local Game = require("src.core.Game")
     local save = Game.save
@@ -94,21 +132,24 @@ function Client:checkMilestones()
     if owned >= 50 then earned[#earned + 1] = "dex_50" end
     if owned >= 100 then earned[#earned + 1] = "dex_100" end
     if owned >= 150 then earned[#earned + 1] = "dex_150" end
-    for _, mon in ipairs(save.party or {}) do
-      if (tonumber(mon.level) or 0) >= 100 then earned[#earned + 1] = "mon_100" break end
+    local party = save.party or {}
+    if #party >= 6 then earned[#earned + 1] = "party_6" end
+    for _, mon in ipairs(party) do
+      local lvl = tonumber(mon.level) or 0
+      if lvl >= 50 then earned[#earned + 1] = "lvl_50" end
+      if lvl >= 100 then earned[#earned + 1] = "mon_100" end
     end
+    local money = tonumber(save.money) or 0
+    if money >= 10000 then earned[#earned + 1] = "rich_10k" end
+    if money >= 100000 then earned[#earned + 1] = "rich_100k" end
+    if money >= 999999 then earned[#earned + 1] = "rich_max" end
     local fresh = 0
     for _, id in ipairs(earned) do
-      if not self.mod.save:get("ms_" .. id, false) then
-        self.net:send({ type = "milestone", id = id })
-        self.mod.save:set("ms_" .. id, true)
-        fresh = fresh + 1
-      end
+      if self:claimMilestone(id, true) then fresh = fresh + 1 end
     end
-    -- one line even for the first-login burst (an endgame save claims
-    -- a dozen at once; a dozen chat lines is noise)
     if fresh == 1 then self:log("History badge earned!")
     elseif fresh > 1 then self:log(fresh .. " history badges earned!") end
+    self:syncMilestones()
   end)
 end
 

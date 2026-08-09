@@ -98,6 +98,10 @@ return function(mod, client)
             { "Next channel", function()
               client:joinChannel((client.channel + 1) % math.max(1, client.channels))
             end },
+            { "My history", function()
+              self.histScroll = 0
+              self.view = "history"
+            end },
             { "Server info", function()
               client:requestStats()
               self.view = "stats"
@@ -313,6 +317,45 @@ return function(mod, client)
         if input:wasPressed("b") then game.stack:pop() end
       end
 
+      -- my history: the collectible record, browsable. Earned rows only;
+      -- the header carries the score (12/43).
+      local Ach = GEN1MMO_INCLUDE("src/achievements.lua")
+      local HIST_VISIBLE = 9
+      local function earnedHistory()
+        local rows = {}
+        for _, r in ipairs(Ach.LIST) do
+          if mod.save:get("ms_" .. r[1], false) then rows[#rows + 1] = r[2] end
+        end
+        return rows
+      end
+      local function updateHistory()
+        local rows = earnedHistory()
+        local maxScroll = math.max(0, #rows - HIST_VISIBLE)
+        self.histScroll = math.min(self.histScroll or 0, maxScroll)
+        if input:wasPressed("up") then
+          self.histScroll = math.max(0, self.histScroll - 1)
+        end
+        if input:wasPressed("down") then
+          self.histScroll = math.min(maxScroll, self.histScroll + 1)
+        end
+        if input:wasPressed("b") or input:wasPressed("a") then self.view = "menu" end
+      end
+      local function drawHistory()
+        Font.drawBox(0, 0, 20, 18)
+        local rows = earnedHistory()
+        Font.draw(("HISTORY %d/%d"):format(#rows, #Ach.LIST), 16, 8)
+        if #rows == 0 then
+          Font.draw("Nothing yet.", 12, 36)
+          Font.draw("Go make some!", 12, 48)
+        end
+        for i = 1, math.min(HIST_VISIBLE, #rows - (self.histScroll or 0)) do
+          Font.draw(rows[i + (self.histScroll or 0)], 12, 22 + (i - 1) * 12)
+        end
+        if (self.histScroll or 0) + HIST_VISIBLE < #rows then
+          Font.drawCode(0xEE, 148, 130) -- vanilla "more" arrow
+        end
+      end
+
       -- emote picker: fire and pop straight back to the world, so the
       -- bubble is visible the moment it exists
       local EMOTE_ROWS = { { "Heart", 0 }, { "Wave", 1 }, { "Fist", 2 } }
@@ -449,6 +492,7 @@ return function(mod, client)
         elseif self.view == "player" then updatePlayer()
         elseif self.view == "stats" then updateStats()
         elseif self.view == "emote" then updateEmote()
+        elseif self.view == "history" then updateHistory()
         elseif self.view == "chatbox" then updateChatbox() end
       end
 
@@ -524,7 +568,7 @@ return function(mod, client)
               return
             end
           end
-        elseif self.view == "stats" then
+        elseif self.view == "stats" or self.view == "history" then
           self.view = "menu"
         elseif self.view == "emote" then
           for i = 1, #EMOTE_ROWS do
@@ -702,9 +746,12 @@ return function(mod, client)
       -- best milestone becomes the TITLE under the name
       local TITLES = {
         { "hof", "CHAMPION" }, { "dex_150", "DEX MASTER" },
-        { "mon_100", "CENTURION" }, { "badge_8", "8 BADGES" },
-        { "dex_100", "DEX 100" }, { "badge_4", "4 BADGES" },
-        { "dex_50", "DEX 50" }, { "badge_1", "ROOKIE" },
+        { "mon_100", "CENTURION" }, { "rich_max", "TYCOON" },
+        { "catch_50", "COLLECTOR" }, { "badge_8", "8 BADGES" },
+        { "catch_legend", "LEGEND" }, { "dex_100", "DEX 100" },
+        { "steps_10k", "WANDERER" }, { "badge_4", "4 BADGES" },
+        { "dex_50", "DEX 50" }, { "catch_1", "CATCHER" },
+        { "badge_1", "ROOKIE" },
       }
       local function titleFor(milestones)
         local have = {}
@@ -722,11 +769,16 @@ return function(mod, client)
         -- trainer card: what they carry, what they've done
         local card = client.cards and client.cards[who]
         local title = card and titleFor(card.milestones)
+        -- the title draws beside the name only when it fits WHOLE; a
+        -- long name pushes it down to lead the Hist line instead --
+        -- never truncated, never clipped
+        local titleDrawn = false
         if title then
-          -- right-aligned to the frame, never past the name, never clipped
           local tx = math.max(16 + 8 * #who + 8, 152 - 8 * #title)
-          local fit = math.floor((152 - tx) / 8)
-          if fit > 2 then Font.draw(title:sub(1, fit), tx, 6) end
+          if 152 - tx >= 8 * #title then
+            Font.draw(title, tx, 6)
+            titleDrawn = true
+          end
         end
         local prof = card and card.profile
         if prof then
@@ -749,9 +801,13 @@ return function(mod, client)
         if card and card.milestones and #card.milestones > 0 then
           local earned = {}
           for _, ms in ipairs(card.milestones) do earned[tostring(ms.id)] = true end
-          local line = ("Hist %d:"):format(#card.milestones)
+          local line = (title and not titleDrawn)
+            and ("%s %d:"):format(title, #card.milestones)
+            or ("Hist %d:"):format(#card.milestones)
           for _, m in ipairs({
             { "hof", "HOF" }, { "dex_150", "D150" }, { "mon_100", "C100" },
+            { "rich_max", "TY" }, { "catch_legend", "LGD" }, { "ball_master", "MB" },
+            { "catch_50", "C50" },
             { "badge_8", "B8" }, { "dex_100", "D100" }, { "badge_7", "B7" },
             { "badge_6", "B6" }, { "badge_5", "B5" }, { "dex_50", "D50" },
             { "badge_4", "B4" }, { "badge_3", "B3" }, { "badge_2", "B2" },
@@ -858,6 +914,7 @@ return function(mod, client)
         elseif self.view == "player" then drawPlayer()
         elseif self.view == "stats" then drawStats()
         elseif self.view == "emote" then drawEmote()
+        elseif self.view == "history" then drawHistory()
         elseif self.view == "chatbox" then drawChatbox() end
       end
 
