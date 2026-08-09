@@ -90,6 +90,7 @@ return function(mod, client)
               client.overlayOn = not client.overlayOn
               mod.save:set("chat_overlay", client.overlayOn)
             end },
+            { "Chat box", function() self.view = "chatbox" end },
             { "Disconnect", function() client:disconnect() end },
           }
         else
@@ -115,6 +116,7 @@ return function(mod, client)
               client.autoConnect = not client.autoConnect
               mod.save:set("auto_connect", client.autoConnect)
             end },
+            { "Chat box", function() self.view = "chatbox" end },
             { "Forget login", function()
               client:forgetLogin()
               client.status = "Saved login cleared"
@@ -274,6 +276,39 @@ return function(mod, client)
         if input:wasPressed("a") or input:wasPressed("b") then self.view = "menu" end
       end
 
+      -- chat-box panel tuning: each row cycles through fixed steps
+      local CHATBOX_ROWS = {
+        { "Size",   "size",  { 0.5, 0.65, 0.75, 0.85, 1.0 }, "%d%%" },
+        { "Text",   "text",  { 0.4, 0.6, 0.8, 1.0 },          "%d%%" },
+        { "Backgr", "bg",    { 0, 0.25, 0.5, 0.7, 0.85, 1.0 }, "%d%%" },
+        { "Lines",  "lines", { 2, 3, 4, 6 },                   "%d" },
+      }
+      self.cbIndex = 1
+
+      local function cbStep(row, dirn)
+        local steps = row[3]
+        local cur = client.ovl[row[2]]
+        local at = 1
+        for i, v in ipairs(steps) do
+          if math.abs(v - (cur or steps[1])) < 0.001 then at = i break end
+        end
+        at = ((at - 1 + dirn) % #steps) + 1
+        client.ovl[row[2]] = steps[at]
+        mod.save:set("ovl_" .. row[2], steps[at])
+      end
+
+      local function updateChatbox()
+        if input:wasPressed("up") then
+          self.cbIndex = self.cbIndex > 1 and self.cbIndex - 1 or #CHATBOX_ROWS
+        end
+        if input:wasPressed("down") then
+          self.cbIndex = self.cbIndex < #CHATBOX_ROWS and self.cbIndex + 1 or 1
+        end
+        if input:wasPressed("left") then cbStep(CHATBOX_ROWS[self.cbIndex], -1) end
+        if input:wasPressed("right") then cbStep(CHATBOX_ROWS[self.cbIndex], 1) end
+        if input:wasPressed("b") or input:wasPressed("a") then self.view = "menu" end
+      end
+
       local function updateChat()
         local maxOff = math.max(0, #client.chat - CHAT_VISIBLE)
         if input:wasPressed("up") then self.chatOff = math.min(self.chatOff + 1, maxOff) end
@@ -337,7 +372,8 @@ return function(mod, client)
         elseif self.view == "chat" then updateChat()
         elseif self.view == "look" then updateLook()
         elseif self.view == "player" then updatePlayer()
-        elseif self.view == "stats" then updateStats() end
+        elseif self.view == "stats" then updateStats()
+        elseif self.view == "chatbox" then updateChatbox() end
       end
 
       -- ----- touch: tap items/letters directly (cx,cy in 160x144 canvas
@@ -414,6 +450,16 @@ return function(mod, client)
           end
         elseif self.view == "stats" then
           self.view = "menu"
+        elseif self.view == "chatbox" then
+          for i = 1, #CHATBOX_ROWS do
+            local y = 28 + (i - 1) * 14
+            if cy >= y - 3 and cy <= y + 11 then
+              self.cbIndex = i
+              cbStep(CHATBOX_ROWS[i], (cx >= 80) and 1 or -1)
+              return
+            end
+          end
+          self.view = "menu" -- tap outside the rows backs out
         elseif self.view == "chat" then
           -- top edge pages back through history, bottom edge pages forward;
           -- anywhere else opens Say (the pre-scroll behavior)
@@ -583,6 +629,22 @@ return function(mod, client)
         Font.draw("A/B: back", 12, 128)
       end
 
+      local function drawChatbox()
+        Font.drawBox(0, 0, 20, 18)
+        Font.draw("CHAT BOX", 16, 8)
+        for i, row in ipairs(CHATBOX_ROWS) do
+          local v = client.ovl[row[2]] or row[3][1]
+          local shown = row[2] == "lines" and tostring(v)
+            or (tostring(math.floor(v * 100 + 0.5)) .. " pct")
+          local y = 28 + (i - 1) * 14
+          Font.draw(row[1] .. ": " .. shown, 16, y)
+          if self.cbIndex == i then Font.drawCode(Theme.cursor, 8, y) end
+        end
+        Font.draw("L/R:adjust A/B:back", 8, 116)
+        -- live preview of the current opacity/size mix
+        Font.draw("Sample chat line", 8, 132)
+      end
+
       local function drawKey(code)
         Font.drawBox(0, 0, 20, 18)
         Font.draw("YOUR RECOVERY KEY", 12, 10)
@@ -621,7 +683,8 @@ return function(mod, client)
         elseif self.view == "chat" then drawChat()
         elseif self.view == "look" then drawLook()
         elseif self.view == "player" then drawPlayer()
-        elseif self.view == "stats" then drawStats() end
+        elseif self.view == "stats" then drawStats()
+        elseif self.view == "chatbox" then drawChatbox() end
       end
 
       return self

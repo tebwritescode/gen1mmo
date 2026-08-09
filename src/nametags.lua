@@ -25,8 +25,11 @@ function Nametags.install(mod, client)
       local rend = Game.renderer
       local wc = rend and rend.worldCanvas
       if not (cam and wc and type(vp) == "table") then return end
-      -- perspective (tilt) and mod pipelines change the mapping; skip
-      if rend.worldOverride then return end
+      -- True perspective (tilt) has no affine world->screen map: skip.
+      -- Pipeline mods (rend.worldOverride, e.g. voxel renderers) replace
+      -- the world image but typically keep the camera framing, so we keep
+      -- drawing with the flat-path projection -- best effort beats tags
+      -- silently vanishing whenever such a mod is on.
       local Tilt = require("src.render.Tilt")
       if Tilt.active and Tilt.active() then return end
 

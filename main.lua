@@ -50,6 +50,13 @@ client.autoConnect = mod.save:get("auto_connect", true)
 -- doesn't exist in the charmap and drew as a space), so the readout is
 -- opt-in again.
 client.inputDebug = mod.save:get("input_debug", false)
+-- chat-box panel tuning (the "Chat box" settings view persists these)
+client.ovl = {
+  size = mod.save:get("ovl_size", 0.75),
+  bg = mod.save:get("ovl_bg", 0.85),
+  text = mod.save:get("ovl_text", 1.0),
+  lines = mod.save:get("ovl_lines", 4),
+}
 
 -- Default server: the official beta VPS, with its identity pin baked in so
 -- the encrypted tunnel verifies out of the box (the pin is the server's
