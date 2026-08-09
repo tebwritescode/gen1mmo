@@ -133,7 +133,11 @@ function Client:connect(host, port, intent, name, password)
   -- plaintext-on-loopback-only).
   self._connHost = tostring(host)
   self._hs = Tunnel.start(Tunnel.gatherEntropy(self._connHost .. ":" .. tostring(port)))
-  self.net:send({ type = "hello", v = 1, cpub = Crypto.toBase64(self._hs.cpub) })
+  -- `client` = self-reported build; extra hello fields pass every server's
+  -- frame guard untouched (structure+type checks only), so this is safe
+  -- against any deployed version
+  self.net:send({ type = "hello", v = 1, cpub = Crypto.toBase64(self._hs.cpub),
+                  client = "gen1mmo/" .. tostring(self.version or "?") })
   self.state = "greeted"
   self.status = "Handshaking..."
   return true
@@ -422,6 +426,10 @@ function Client:_dispatch(m)
     self.features = {}
     for _, f in ipairs(m.features or {}) do self.features[f] = true end
     self.status = "Online as " .. tostring(m.name)
+    -- operator-advertised newest build: nudge, never nag (one log line)
+    if m.latestMod and self.version and m.latestMod ~= self.version then
+      self:log("Update available: " .. tostring(m.latestMod))
+    end
     if m.skin then self.skin = Skins.sanitize(m.skin) end
     -- push our chosen look to the world, and wear it ourselves
     self.net:send({ type = "set_skin", skin = self.skin })

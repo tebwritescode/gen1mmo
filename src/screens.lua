@@ -622,6 +622,7 @@ return function(mod, client)
             .. "/" .. tostring(client.channels or 1),
           "Here: " .. tostring(client.players:count() + 1) .. " players",
           "Ping: " .. (client.pingMs and (client.pingMs .. " ms") or "..."),
+          "Mod: " .. tostring(client.version or "?"),
         }
         for i, row in ipairs(rows) do
           Font.draw(row, 12, 28 + (i - 1) * 14)

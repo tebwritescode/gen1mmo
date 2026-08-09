@@ -44,6 +44,8 @@ for body = 0, 1 do
 end
 
 local client = Client.new(mod)
+-- own build string, read from the manifest so it can never drift
+client.version = ((mod:read("manifest.json") or ""):match('"version"%s*:%s*"([^"]+)"')) or "?"
 client.overlayOn = mod.save:get("chat_overlay", true)
 client.autoConnect = mod.save:get("auto_connect", true)
 -- The v0.3.3 input mystery is solved (the cursor moved; its ">" glyph
