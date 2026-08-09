@@ -21,12 +21,13 @@ you type.
 
 ## Everyone plays together
 
-One world, every kind of player. Glitch hunters, GameShark teams,
-speedrunners, and a straight cartridge-honest playthrough all walk the same
-Kanto — your save is yours to play your way, and none of it decides who you
-get to meet. The server keeps players on the same channel so you actually
-run into each other, spreading an area out only when it gets genuinely
-crowded.
+Your game stays your own: what other players see of you is your position,
+your look, and your chat — never your save. That means how anyone plays
+their own game can't affect yours, so there is no anti-cheat and no need
+for one: play it straight, glitch it, GameShark it, and you all still meet
+in the same overworld. When you enter an area the server places you with
+the people already there, opening a parallel copy of that area only if it
+gets genuinely crowded.
 
 - **Live players on your map**, with floating nametags — and you can walk
   straight through anyone, so nobody can ever block a doorway.

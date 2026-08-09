@@ -32,10 +32,11 @@ style (native keyboard input on phones); press A on a player to whisper or
 add a friend; customise your look with a body choice and eight skin tones
 that render on your character.
 
-Everyone plays together — glitch hunters, GameShark teams and cartridge-
-honest playthroughs share one world, and the server keeps players on the
-same channel so you actually meet, spreading an area only when it gets
-genuinely crowded.
+Everyone plays together: other players only ever see your position, look
+and chat — never your save — so how anyone plays their own game can't
+affect yours, and there is no anti-cheat because none is needed. The
+server places you with the people already in an area, opening a parallel
+copy only when it gets genuinely crowded.
 
 Privacy is the project's constitution: accounts are a name and password
 (recovery by one-time code — no email, no phone, no personal data), chat is
