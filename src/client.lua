@@ -427,6 +427,7 @@ function Client:_dispatch(m)
     for _, f in ipairs(m.features or {}) do self.features[f] = true end
     self.status = "Online as " .. tostring(m.name)
     -- operator-advertised newest build: nudge, never nag (one log line)
+    self.latestMod = m.latestMod
     if m.latestMod and self.version and m.latestMod ~= self.version then
       self:log("Update available: " .. tostring(m.latestMod))
     end

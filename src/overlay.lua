@@ -51,6 +51,31 @@ function Overlay.install(mod, client)
     -- pointer hook can map a screen tap into 160x144 canvas space.
     if type(vp) == "table" then client._vp = vp end
     vp = viewportOr(vp)
+
+    -- Connection dot: always-on, corner of the playfield. Green = online
+    -- and snappy, orange = online but slow / still connecting, red = not
+    -- connected. THE answer to "am I even online right now?".
+    pcall(function()
+      local Game = require("src.core.Game")
+      local ow = Game.overworld
+      if not ow or game.stack:top() ~= ow then return end
+      local lg = love.graphics
+      local r, g, b
+      if client.state == "playing" then
+        if client.pingMs and client.pingMs < 150 then r, g, b = 0.15, 0.85, 0.2
+        else r, g, b = 0.95, 0.65, 0.1 end
+      elseif client.state == "offline" then r, g, b = 0.9, 0.15, 0.15
+      else r, g, b = 0.95, 0.65, 0.1 end
+      lg.push("all")
+      lg.translate(vp.gameX or 0, vp.gameY or 0)
+      lg.scale(vp.scale or 1)
+      lg.setColor(0, 0, 0, 0.7)
+      lg.rectangle("fill", 152, 2, 6, 6)
+      lg.setColor(r, g, b, 0.95)
+      lg.rectangle("fill", 153, 3, 4, 4)
+      lg.pop()
+    end)
+
     if not client.overlayOn or client.state ~= "playing" then return end
     local ok, err = pcall(function()
       local Game = require("src.core.Game")

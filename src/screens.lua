@@ -91,6 +91,10 @@ return function(mod, client)
               mod.save:set("chat_overlay", client.overlayOn)
             end },
             { "Chat box", function() self.view = "chatbox" end },
+            { "Geek stats: " .. (client.geekStats and "ON" or "OFF"), function()
+              client.geekStats = not client.geekStats
+              mod.save:set("geek_stats", client.geekStats)
+            end },
             { "Disconnect", function() client:disconnect() end },
           }
         else
@@ -117,6 +121,10 @@ return function(mod, client)
               mod.save:set("auto_connect", client.autoConnect)
             end },
             { "Chat box", function() self.view = "chatbox" end },
+            { "Geek stats: " .. (client.geekStats and "ON" or "OFF"), function()
+              client.geekStats = not client.geekStats
+              mod.save:set("geek_stats", client.geekStats)
+            end },
             { "Forget login", function()
               client:forgetLogin()
               client.status = "Saved login cleared"

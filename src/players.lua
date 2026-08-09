@@ -153,6 +153,14 @@ function Players:eachEntity(fn)
   end
 end
 
+--- Re-spawn every remote with its stored skin -- called after tone sheets
+--- regenerate, so players who fell back to base sprites pick up their look.
+function Players:respawnAll()
+  for name, r in pairs(self.remote) do
+    self:_spawn(name, r.x, r.y, r.dir, r.skin)
+  end
+end
+
 function Players:clear()
   for name in pairs(self.remote) do self:_despawn(name) end
   self.remote = {}

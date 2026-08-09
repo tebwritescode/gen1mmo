@@ -93,16 +93,39 @@ do
   end
 end
 
+client.geekStats = mod.save:get("geek_stats", false)
+
 installScreen(mod, client)
 Overlay.install(mod, client)
 Nametags.install(mod, client)
+GEN1MMO_INCLUDE("src/geekstats.lua").install(mod, client)
 
--- Surface the tone-sheet derivation result in the chat log: "Skin
--- sheets: 16" is healthy; 0 means the transform found no cache to read
--- (report it -- tones then fall back to plain RED/BLUE).
+-- Tone sheets, twice-guaranteed: the install transform derives them, and
+-- Tonegen regenerates any sheet that STILL cannot load, at runtime, from
+-- the resolvable base sprite -- so a quirky device cache degrades to a
+-- one-time regeneration instead of silently stock-red players. The
+-- result always lands in the chat log ("Skin sheets: 16/16 ...").
+local Tonegen = GEN1MMO_INCLUDE("src/tonegen.lua")
+local function ensureTones(label)
+  pcall(function()
+    local ok, total, note = Tonegen.ensure()
+    client.diagSheets = ok
+    client:log(("Skin sheets: %d/%d (%s)"):format(ok, total, note))
+    if ok > 0 then
+      client:applyOwnSprite()
+      client.players:respawnAll() -- remotes that fell back pick up looks
+    end
+  end)
+end
 mod.events:on("assets.transformed", function(ev)
   if ev.modId ~= mod.id then return end
-  client:log("Skin sheets: " .. tostring(ev.count or 0))
+  ensureTones("post-transform")
+end)
+local tonesChecked = false
+mod.events:on("map.entered", function()
+  if tonesChecked then return end
+  tonesChecked = true
+  ensureTones("first-map")
 end)
 
 -- A-press on a remote player: the engine resolves the interaction to our
