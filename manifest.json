@@ -8,6 +8,7 @@
   "api": 2,
   "entry": "main.lua",
   "permissions": ["network"],
-  "homepage": "https://github.com/gen1mmo/gen1mmo-mod",
+  "homepage": "https://github.com/tebwritescode/gen1mmo",
+  "github": "tebwritescode/gen1mmo",
   "tags": ["online", "multiplayer", "chat", "customisation", "tools"]
 }
