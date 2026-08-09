@@ -106,13 +106,23 @@ return function(mod, client)
                 end)
               end)
             end },
-            { "Log in", function()
-              self:enterText("USERNAME:", false, function(u)
-                self:enterText("PASSWORD:", true, function(p)
-                  client:connect(client.host, client.port, "login", u, p)
-                end)
-              end)
-            end },
+            (function()
+              -- saved login = one press; the prompt flow only appears when
+              -- nothing is stored (or after Forget login)
+              local saved = client.storedLoginName and client:storedLoginName()
+              if saved then
+                return { ("Log in: %s"):format(saved), function()
+                  client:connectStored(client.host, client.port)
+                end }
+              end
+              return { "Log in", function()
+                self:enterText("USERNAME:", false, function(u)
+                  self:enterText("PASSWORD:", true, function(p)
+                    client:connect(client.host, client.port, "login", u, p)
+                  end)
+                end, mod.save:get("last_name", "")) -- prefill the last name
+              end }
+            end)(),
             -- "Set server" is hidden for the beta: the default already points
             -- at the official server, and the row exposed its address. Self-
             -- hosters still override via config.lua / the saved server_host.
@@ -133,9 +143,9 @@ return function(mod, client)
         end
       end
 
-      function self:enterText(prompt, mask, onDone)
+      function self:enterText(prompt, mask, onDone, initial)
         self.view = "text"
-        self.buffer = ""
+        self.buffer = tostring(initial or "")
         self.textPrompt = prompt
         self.textMask = mask
         self.textOnDone = onDone

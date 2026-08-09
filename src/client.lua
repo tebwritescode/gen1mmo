@@ -204,6 +204,11 @@ end
 -- ---------------------------------------------------------------- auth flow
 
 function Client:_beginAuth()
+  -- remember the name (never the password) so the next login prompt is
+  -- prefilled even when no verifier survives
+  if self.creds and self.creds.name then
+    pcall(function() self.mod.save:set("last_name", self.creds.name) end)
+  end
   if self.intent == "register" then
     self.status = "Requesting registration..."
     self.net:send({ type = "pow_get" })
@@ -247,6 +252,14 @@ end
 
 --- Reconnect with credentials remembered from a previous session. Sends the
 --- STORED verifier: no password ever touches the disk.
+--- The saved login's name, or nil -- drives the one-press "Log in" row.
+function Client:storedLoginName()
+  if self.mod.save:get("auth_name", nil) and self.mod.save:get("auth_verifier", nil) then
+    return self.mod.save:get("auth_name", nil)
+  end
+  return nil
+end
+
 function Client:connectStored(host, port)
   local name = self.mod.save:get("auth_name", nil)
   if not name or not self.mod.save:get("auth_verifier", nil) then return false end
@@ -547,7 +560,25 @@ function Client:_dispatch(m)
       self:forgetLogin()
       self.status = "Saved login expired - log in again"
     end
-    self:log("! " .. tostring(m.code) .. (m.reason and (" (" .. m.reason .. ")") or ""))
+    -- humans read these; codes are for machines
+    local FRIENDLY = {
+      name_taken = "Name taken - pick another",
+      look_alike = "Name too close to another player's",
+      bad_proof = "Wrong password",
+      bad_name = "Name: 3-16 letters, numbers, _",
+      registration_limited = "Too many new accounts - wait a bit",
+      banned = "This name is banned",
+      rate_limited = "Slow down a moment",
+      trust_too_low = "New accounts cannot do that yet",
+      muted = "You are muted",
+      spam = "Repeated message dropped",
+      link_blocked = "Links are not allowed",
+      not_found = "No such player here",
+    }
+    local text = FRIENDLY[tostring(m.code)]
+      or (tostring(m.code) .. (m.reason and (" (" .. m.reason .. ")") or ""))
+    if self.state == "authing" or self.state == "greeted" then self.status = text end
+    self:log("! " .. text)
   elseif t == "kick" then
     self.status = "Kicked: " .. tostring(m.reason)
     self:log("* Kicked: " .. tostring(m.reason))
