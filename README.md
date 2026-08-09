@@ -1,94 +1,93 @@
 # Gen1MMO
 
-**Online play for [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp): other trainers in *your* save.**
+**Online play for [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp) —
+other trainers, live in your own save.**
 
-Install the mod, open GEN1MMO from the START menu, pick a name — and the
-overworld you already play has real people walking around in it. Chat with
-them, wave your look around, add friends. Disconnect any time; your game is
-still just your game.
+Install the mod, open GEN1MMO from the START menu, pick a name, and the
+world you already play fills with real people. Chat, show off your look,
+make friends. One official server runs 24/7 and is already configured —
+there is nothing to set up.
 
-> **Beta.** One official server, online 24/7, already set up — install and
-> play. No account beyond a name and password. No email. Ever.
+> **Beta.** Accounts are a name and a password. No email, ever.
 
-## This is not a "start over" MMO
+## Your save is your character
 
-Other multiplayer projects give you a fresh character that lives on their
-server. **Gen1MMO is an overlay on your own single-player save.** Your team,
-your badges, your box full of level 100s from 1998 — that save is the one
-other players see you walking around in. Nothing is uploaded, nothing is
-imported, nothing is reset. The server only ever sees your position, your
-chosen look, and what you type.
+Gen1MMO overlays multiplayer onto your own single-player save. Your team,
+your badges, your box full of level 100s from way back — that is the
+trainer other players meet. Nothing is uploaded, imported, or reset; you
+keep playing the game you were already playing, and you can disconnect any
+time. The server only ever sees your position, your chosen look, and what
+you type.
 
-## Cheat or don't — everyone plays together
+## Everyone plays together
 
-There is no anti-cheat and there never will be. GameShark teams, glitch
-runs, speedruns, a perfectly legitimate Red cartridge playthrough — all of it
-shares one world. Your save is yours to bend; being together is the point.
-Everyone stays in the same world until a single area gets genuinely crowded —
-the server actively keeps players on the same channel so you actually *see*
-each other.
+One world, every kind of player. Glitch hunters, GameShark teams,
+speedrunners, and a straight cartridge-honest playthrough all walk the same
+Kanto — your save is yours to play your way, and none of it decides who you
+get to meet. The server keeps players on the same channel so you actually
+run into each other, spreading an area out only when it gets genuinely
+crowded.
 
-## Together is the feature
-
-- **See other players** live on your map, with nametags — walk right through
-  them, they can never block a doorway.
-- **Chat**: map / channel / global scopes, a fading overlay in the game's own
-  menu style (size and opacity are yours to tune), and native keyboard input
-  on phones — tap the text line and type.
+- **Live players on your map**, with floating nametags — and you can walk
+  straight through anyone, so nobody can ever block a doorway.
+- **Chat** in three scopes (map / channel / global), shown on a fading
+  panel drawn in the game's own menu style — size, opacity, and length are
+  yours to tune. On phones, tap the text line and your keyboard pops up.
 - **Press A on a player** to whisper or send a friend request.
-- **Your look**: body, and eight skin tones that really render — on your own
-  character too. Hair and outfits are drawn from the same catalog and coming
-  to the sprite art next. All cosmetics free, forever.
-- **Server info** in the menu: who's online, your channel, your ping.
-- Plays nicely with other mods, including Dramatic Shape Voxel — nametags
-  follow players into the 3D views.
+- **Your look**: body choice plus eight skin tones that render in the
+  overworld — on your own character too. Hair styles and outfits come from
+  the same catalog, with sprite art on the way. Every cosmetic is free,
+  forever.
+- **Server info** in the menu: players online, your channel, your ping.
+- Plays nicely alongside other mods, including full 3D render mods —
+  nametags follow players into those views.
 
-## Privacy is the constitution, not a feature
+## Privacy is the constitution
 
-Built to hold **as little about you as technically possible** — and the
-server's own test suite fails if anyone tries to change that.
+Gen1MMO is built to hold as little about you as technically possible, and
+the server's own test suite fails any change that would weaken that.
 
-- Registration is a name and a password. **No email, no phone, no personal
-  anything** — account recovery is a one-time code shown at registration
-  (write it down; there are no resets because we have nothing to identify
-  you with, which is the point).
-- **Your password never leaves your device** — only a derived verifier does.
-- **Everything is encrypted** end to end with the server's identity pinned
-  in the mod — a fake server fails closed.
+- **An account is a name and a password.** No email, no phone, nothing
+  personal. Recovery is a one-time code shown when you register — write it
+  down; it is the only way back in, precisely because we hold nothing that
+  could identify you.
+- **Your password never leaves your device** — only a derived verifier
+  does.
+- **Every connection is encrypted** end to end, with the official server's
+  identity pinned inside the mod, so an impostor server fails closed.
 - **Chat is never stored.** Public messages are filtered (links blocked,
-  profanity starred) and forgotten on delivery. Whispers are mutual-friends
-  only.
-- **No IP retention, no play history.** A subpoena or a breach would yield a
-  username, a password verifier, an outfit, and a friends list.
-- **No age verification, ever** — it's the one thing the server refuses to
-  be taught.
+  profanity starred) and forgotten on delivery. Whispers are between
+  mutual friends only.
+- **No IP retention, no play history.** The server's complete knowledge of
+  you: a username, a password verifier, an outfit, a friends list.
+- **No age verification, ever.**
 
 Report bad actors in-game; repeat offenders forfeit their name.
 
 ## Install
 
-1. Have Gen1Recomp set up with your own legally-obtained ROM (Gen1MMO ships
-   no game data — your skin tones are even derived on-device from your own
-   import).
+1. Have Gen1Recomp set up with your own legally-obtained ROM — Gen1MMO
+   ships no game data, and even your skin tones are derived on-device from
+   your own import.
 2. Download the latest `gen1mmo-<version>.zip` from Releases.
-3. Launcher → MODS → **Import mod .zip**, enable **Gen1MMO** (it asks for the
-   `network` permission — that is the connection to the server, and every
-   line it sends is readable in this repo).
+3. Launcher → MODS → **Import mod .zip**, then enable **Gen1MMO**. It asks
+   for the `network` permission — that is its connection to the server,
+   and every line it sends is readable in this repository.
 4. In game: START → GEN1MMO → **Register**. That's the whole account.
 
-Self-hosters: point the mod at your own server with a drop-in `config.lua`
-(host, port, identity pin).
+Prefer to run your own server? Point the mod anywhere with a drop-in
+`config.lua` (host, port, identity pin).
 
 ## Status
 
 | | |
 |---|---|
-| Live player sync, nametags, pass-through collision | ✅ |
-| Chat (3 scopes), overlay, native keyboard, filter | ✅ |
-| Looks: body + 8 rendered skin tones, catalog for hair/outfits | ✅ |
+| Live player sync, nametags, walk-through collision | ✅ |
+| Chat (3 scopes), tunable overlay, native keyboard, filter | ✅ |
+| Looks: body + 8 rendered skin tones; hair/outfit catalog | ✅ |
 | Friends, whispers, player interact menu | ✅ |
-| Encrypted transport, pinned server identity | ✅ |
-| Accounts + recovery codes, moderation, reports | ✅ |
+| Encrypted transport with pinned server identity | ✅ |
+| Accounts, recovery codes, in-game reports, moderation | ✅ |
 | Hair/outfit sprite art, trading, more swag | 🔜 |
 
 ## Licence

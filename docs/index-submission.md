@@ -12,7 +12,7 @@ https://bryanthaboi.github.io/gen1recomp-mod-index/ (it produces the PR).
 | Categories | ONLINE, SOCIAL (max four; pick what the form offers closest) |
 | Source repo | `tebwritescode/gen1mmo` |
 | Tags | online, multiplayer, chat, customisation, privacy |
-| Summary (one line) | Other trainers in YOUR save: chat, looks, friends -- no new character, no email, one official server. |
+| Summary (one line) | Other trainers live in your own save: chat, looks, friends -- one official server, accounts with no email. |
 | Engine fit | Mod API 2 |
 | Thumbnail | 16:9 PNG -- screenshot of two tagged players + chat panel (assets/thumbnail.png, to capture) |
 
@@ -22,18 +22,20 @@ nested in a folder).
 
 ## description.md (index card body)
 
-**Online play for Gen1Recomp — other trainers in *your* save.**
+**Online play for Gen1Recomp — other trainers, live in your own save.**
 
-No fresh server-side character, no starting over: Gen1MMO overlays
-multiplayer onto the single-player save you already have. Other players
-appear in your overworld with nametags; chat rides a fading panel in the
-game's own menu style (with native keyboard input on phones); press A on a
-player to whisper or add a friend; customise your look with a body choice
-and eight skin tones that render on your character.
+Gen1MMO overlays multiplayer onto the single-player save you already have:
+the trainer other players meet is yours, badges, box and all, and you keep
+playing the game you were already playing. Other players appear in your
+overworld with nametags; chat rides a fading panel in the game's own menu
+style (native keyboard input on phones); press A on a player to whisper or
+add a friend; customise your look with a body choice and eight skin tones
+that render on your character.
 
-No anti-cheat, on purpose — glitched, GameSharked, and legitimate saves all
-share one world, and the server keeps everyone on the same channel until an
-area is genuinely crowded.
+Everyone plays together — glitch hunters, GameShark teams and cartridge-
+honest playthroughs share one world, and the server keeps players on the
+same channel so you actually meet, spreading an area only when it gets
+genuinely crowded.
 
 Privacy is the project's constitution: accounts are a name and password
 (recovery by one-time code — no email, no phone, no personal data), chat is
