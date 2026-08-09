@@ -44,4 +44,4 @@ filtered and never stored, transport is end-to-end encrypted against a
 pinned server identity, and the server retains no IPs and no play history.
 
 One official server runs 24/7 and is baked in: install, register in-game,
-play. Self-hosting is supported via a drop-in config.
+play.

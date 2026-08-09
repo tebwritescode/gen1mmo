@@ -76,9 +76,6 @@ Report bad actors in-game; repeat offenders forfeit their name.
    and every line it sends is readable in this repository.
 4. In game: START → GEN1MMO → **Register**. That's the whole account.
 
-Prefer to run your own server? Point the mod anywhere with a drop-in
-`config.lua` (host, port, identity pin).
-
 ## Status
 
 | | |
