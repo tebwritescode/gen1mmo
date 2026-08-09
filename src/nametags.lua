@@ -13,10 +13,16 @@ function Nametags.install(mod, client)
   local font = nil
   local broken = false
 
+  local Overlay = GEN1MMO_INCLUDE("src/overlay.lua")
+
   mod.hooks:wrap("render.hud", function(next, game, vp)
     next(game, vp)
     if broken or client.state ~= "playing" then return end
     local ok, err = pcall(function()
+      -- pipelines call render.hud with a NIL viewport; use the shared
+      -- fallback instead of silently bailing (that was "no nametags
+      -- whenever the voxel mod is on")
+      vp = Overlay.viewportOr(vp)
       local Game = require("src.core.Game")
       local ow = Game.overworld
       -- only over a live, visible overworld: menus/battles own the screen

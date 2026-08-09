@@ -28,11 +28,29 @@ function Overlay.install(mod, client)
     return origLog(self, line)
   end
 
+  -- Under render-pipeline mods (worldOverride, e.g. Dramatic Shape Voxel)
+  -- the engine calls render.hud with a NIL viewport. Fall back to the last
+  -- real one, or synthesize the letterbox from the window -- the overlay
+  -- must not die (or silently vanish) just because a pipeline is on.
+  local function viewportOr(vp)
+    if type(vp) == "table" then return vp end
+    if type(client._vp) == "table" then return client._vp end
+    local w, h = love.graphics.getDimensions()
+    local scale = math.max(1, math.floor(math.min(w / 160, h / 144)))
+    return { width = w, height = h, scale = scale,
+             gameX = math.floor((w - 160 * scale) / 2),
+             gameY = math.floor((h - 144 * scale) / 2),
+             gameWidth = 160 * scale, gameHeight = 144 * scale,
+             dpiX = 1, dpiY = 1 }
+  end
+  Overlay.viewportOr = viewportOr -- shared with nametags.lua
+
   mod.hooks:wrap("render.hud", function(next, game, vp)
     next(game, vp)
     -- Stash the live viewport (LOVE-unit playfield rect + scale) so the
     -- pointer hook can map a screen tap into 160x144 canvas space.
     if type(vp) == "table" then client._vp = vp end
+    vp = viewportOr(vp)
     if not client.overlayOn or client.state ~= "playing" then return end
     local ok, err = pcall(function()
       local Game = require("src.core.Game")
