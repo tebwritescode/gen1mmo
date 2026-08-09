@@ -12,7 +12,7 @@
 
 local Skins = {}
 
--- Labels mirror catalog/cosmetics.json in the server repo (catalogVersion 1).
+-- Labels mirror catalog/cosmetics.json in the server repo (catalogVersion 2).
 Skins.catalog = {
   bodies      = { "Boy", "Girl" },
   skinTones   = { "Porcelain", "Fair", "Warm", "Olive", "Bronze", "Umber", "Deep", "Ebony" },
@@ -22,28 +22,47 @@ Skins.catalog = {
                   "Platinum", "Silver", "Crimson", "Ocean", "Forest", "Violet" },
   outfits     = { "Adventurer", "Explorer", "Hiker", "Ace", "Nightfall",
                   "Sunburst", "Meadow", "Ember" },
+  hats        = { "No", "Yes" },
+  pieceColors = { "Black", "Brown", "Tan", "Red", "Orange", "Yellow",
+                  "White", "Gray", "Crimson", "Blue", "Green", "Violet" },
 }
 
-Skins.DEFAULT = { body = 0, skin = 1, hair = 1, hairColor = 0, outfit = 0 }
+Skins.DEFAULT = { body = 0, skin = 1, hair = 1, hairColor = 0, outfit = 0,
+                  hat = 1, hatColor = 3, shirt = 3, pants = 9, pack = 2 }
 
---- Clamp a tuple into the catalog ranges (defensive; the server validates too).
+--- Clamp a tuple into the catalog ranges (defensive; the server validates
+--- too). New piece fields default sensibly when absent, so skins from
+--- older clients and servers still sanitize cleanly.
 function Skins.sanitize(t)
   t = t or {}
-  local function clamp(v, list) v = tonumber(v) or 0; if v < 0 then v = 0 end
-    if v > #list - 1 then v = #list - 1 end; return math.floor(v) end
+  local function clamp(v, list, fallback)
+    v = tonumber(v)
+    if v == nil then return fallback end
+    if v < 0 then v = 0 end
+    if v > #list - 1 then v = #list - 1 end
+    return math.floor(v)
+  end
+  local c = Skins.catalog
   return {
-    body      = clamp(t.body, Skins.catalog.bodies),
-    skin      = clamp(t.skin, Skins.catalog.skinTones),
-    hair      = clamp(t.hair, Skins.catalog.hairStyles),
-    hairColor = clamp(t.hairColor, Skins.catalog.hairColors),
-    outfit    = clamp(t.outfit, Skins.catalog.outfits),
+    body      = clamp(t.body, c.bodies, 0),
+    skin      = clamp(t.skin, c.skinTones, 1),
+    hair      = clamp(t.hair, c.hairStyles, 1),
+    hairColor = clamp(t.hairColor, c.hairColors, 0),
+    outfit    = clamp(t.outfit, c.outfits, 0),
+    hat       = clamp(t.hat, c.hats, 1),
+    hatColor  = clamp(t.hatColor, c.pieceColors, 3),
+    shirt     = clamp(t.shirt, c.pieceColors, 3),
+    pants     = clamp(t.pants, c.pieceColors, 9),
+    pack      = clamp(t.pack, c.pieceColors, 2),
   }
 end
 
 --- Base engine sprite for a body (always present in the cache registry).
+--- The Girl body rides the brunette-girl walker: a real feminine
+--- silhouette with actual hair, straight from the game's own sheets.
 function Skins.baseSprite(skin)
   skin = skin or Skins.DEFAULT
-  if (tonumber(skin.body) or 0) == 1 then return "SPRITE_BLUE" end
+  if (tonumber(skin.body) or 0) == 1 then return "SPRITE_BRUNETTE_GIRL" end
   return "SPRITE_RED"
 end
 

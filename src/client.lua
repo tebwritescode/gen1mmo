@@ -84,6 +84,45 @@ function Client:applyOwnSprite()
   if not ok then self:log("Look failed: " .. tostring(err)) end
 end
 
+-- ------------------------------------------------------------ trainer card
+
+--- Everything the player's own save is willing to show on their card:
+--- badge count, money, and the party summary. Game data, never personal
+--- data, read fresh at send time.
+function Client:gatherProfile()
+  local p = { badges = 0, money = 0, team = {} }
+  pcall(function()
+    local Game = require("src.core.Game")
+    local save = Game.save
+    if not save then return end
+    p.money = math.max(0, math.floor(tonumber(save.money) or 0))
+    p.badges = require("src.inventory.Badges").count(Game.data, save)
+    for i, mon in ipairs(save.party or {}) do
+      if i > 6 then break end
+      p.team[#p.team + 1] = {
+        species = tostring(mon.species or "?"):sub(1, 16),
+        level = math.max(0, math.min(255, math.floor(tonumber(mon.level) or 0))),
+      }
+    end
+  end)
+  return p
+end
+
+--- Push the card to the server (feature-gated: pre-0.15 servers would
+--- guard-kick the unknown type).
+function Client:sendProfile()
+  if not self:canSend() then return end
+  if not (self.features and self.features.profile) then return end
+  self.net:send({ type = "profile", info = self:gatherProfile() })
+end
+
+--- Fetch another player's card; the reply lands in self.cards[name].
+function Client:requestCard(name)
+  if not self:canSend() then return end
+  if not (self.features and self.features.profile) then return end
+  self.net:send({ type = "card_get", name = name })
+end
+
 --- Ask for the public server stats (server-info screen). GATED on the
 --- welcome's feature list: the frame guard KICKS unknown message types,
 --- so sending stats_get at a pre-0.13 server booted the player (found
@@ -304,6 +343,8 @@ function Client:onMap(mapId)
   -- the overworld player exists by now; wear our look even before any
   -- connection (cosmetics are yours offline too)
   self:applyOwnSprite()
+  -- card data drifts as you play (badges, levels); refresh per map
+  self:sendProfile()
   if self:canSend() then
     -- Trigger a re-home + fresh roster for the new map.
     self.net:send({ type = "move", x = self.x, y = self.y, dir = self.dir, map = tostring(mapId) })
@@ -445,6 +486,7 @@ function Client:_dispatch(m)
     -- push our chosen look to the world, and wear it ourselves
     self.net:send({ type = "set_skin", skin = self.skin })
     self:applyOwnSprite()
+    self:sendProfile()
     self:log("Welcome, " .. tostring(m.name) .. "! (channel " .. tostring(self.channel) .. ")")
   elseif t == "roster" then
     self.players:setMap(m.mapId or self.mapId)
@@ -491,6 +533,9 @@ function Client:_dispatch(m)
     end
   elseif t == "stats" then
     self.stats = m
+  elseif t == "card" then
+    self.cards = self.cards or {}
+    self.cards[tostring(m.name)] = m
   elseif t == "resync" then
     if m.x then self.x = m.x end
     if m.y then self.y = m.y end

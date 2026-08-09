@@ -331,19 +331,32 @@ return function(mod, client)
         end
       end
 
-      local CATS = { "body", "skin", "hair", "hairColor", "outfit" }
-      local CATLIST = { body = "bodies", skin = "skinTones", hair = "hairStyles",
-                        hairColor = "hairColors", outfit = "outfits" }
+      -- field, catalog list, short row label -- one source for update,
+      -- draw, and tap (legacy "outfit" stays in the tuple, no row: the
+      -- per-piece colors supersede it)
+      local CATS = {
+        { "body",      "bodies",      "Body" },
+        { "skin",      "skinTones",   "Tone" },
+        { "hair",      "hairStyles",  "Hair" },
+        { "hairColor", "hairColors",  "HairC" },
+        { "hat",       "hats",        "Hat" },
+        { "hatColor",  "pieceColors", "HatC" },
+        { "shirt",     "pieceColors", "Shirt" },
+        { "pants",     "pieceColors", "Pants" },
+        { "pack",      "pieceColors", "Pack" },
+      }
       local function updateLook()
+        -- the preview mannequin turns and steps in place
+        self._lookTick = (self._lookTick or 0) + 1
         if input:wasPressed("up") then self.lookIndex = ((self.lookIndex - 2) % #CATS) + 1 end
         if input:wasPressed("down") then self.lookIndex = (self.lookIndex % #CATS) + 1 end
         local cat = CATS[self.lookIndex]
-        local list = Skins.catalog[CATLIST[cat]]
+        local field, list = cat[1], Skins.catalog[cat[2]]
         if input:wasPressed("left") then
-          client.skin[cat] = ((client.skin[cat] - 1) % #list)
+          client.skin[field] = (((client.skin[field] or 0) - 1) % #list)
         end
         if input:wasPressed("right") then
-          client.skin[cat] = ((client.skin[cat] + 1) % #list)
+          client.skin[field] = (((client.skin[field] or 0) + 1) % #list)
         end
         if input:wasPressed("a") then client:applySkin(client.skin) end
         if input:wasPressed("b") then client:applySkin(client.skin); self.view = "menu" end
@@ -449,8 +462,8 @@ return function(mod, client)
         elseif self.view == "player" then
           local items = playerItems()
           for i = 1, #items do
-            local y = 44 + (i - 1) * 14
-            if cy >= y - 3 and cy <= y + 11 then
+            local y = 96 + (i - 1) * 12
+            if cy >= y - 3 and cy <= y + 9 then
               self.cursor = i
               items[i][2]()
               return
@@ -482,17 +495,13 @@ return function(mod, client)
           end
           self:enterText("SAY:", false, function(t) client:say(self.scope, t) end)
         elseif self.view == "look" then
-          local CATS = { "body", "skin", "hair", "hairColor", "outfit" }
-          for i = 1, #CATS do
-            local y = 26 + (i - 1) * 14
-            if cy >= y - 3 and cy <= y + 11 then
+          for i, c in ipairs(CATS) do
+            local y = 20 + (i - 1) * 11
+            if cy >= y - 2 and cy <= y + 8 and cx < 120 then
               self.lookIndex = i
-              local cat = CATS[i]
-              local listName = ({ body = "bodies", skin = "skinTones", hair = "hairStyles",
-                hairColor = "hairColors", outfit = "outfits" })[cat]
-              local list = Skins.catalog[listName]
-              local step = (cx >= 80) and 1 or -1     -- tap right half = next, left = prev
-              client.skin[cat] = ((client.skin[cat] + step) % #list)
+              local list = Skins.catalog[c[2]]
+              local step = (cx >= 64) and 1 or -1    -- tap right side = next
+              client.skin[c[1]] = (((client.skin[c[1]] or 0) + step) % #list)
               client:applySkin(client.skin)
               return
             end
@@ -593,26 +602,61 @@ return function(mod, client)
       local function drawLook()
         Font.drawBox(0, 0, 20, 18)
         Font.draw("YOUR LOOK", 16, 6)
-        local CATS2 = { { "Body", "body", "bodies" }, { "Skin", "skin", "skinTones" },
-          { "Hair", "hair", "hairStyles" }, { "Colour", "hairColor", "hairColors" },
-          { "Outfit", "outfit", "outfits" } }
-        for i, c in ipairs(CATS2) do
-          local list = Skins.catalog[c[3]]
-          local val = list[(client.skin[c[2]] or 0) + 1] or "?"
-          local y = 26 + (i - 1) * 14
-          Font.draw(c[1] .. ": " .. val, 16, y)
+        for i, c in ipairs(CATS) do
+          local list = Skins.catalog[c[2]]
+          local val = list[(client.skin[c[1]] or 0) + 1] or "?"
+          local y = 20 + (i - 1) * 11
+          -- compact rows: keep clear of the preview box on the right
+          Font.draw((c[3] .. ": " .. val):sub(1, 13), 16, y)
           if self.lookIndex == i then Font.drawCode(Theme.cursor, 8, y) end
         end
+        -- live mannequin: your exact look, turning and stepping in place
+        pcall(function()
+          local Tonegen = GEN1MMO_INCLUDE("src/tonegen.lua")
+          local def = Tonegen.defFor(client.skin)
+          if not def then return end
+          if self._previewImage ~= def.image then
+            self._previewSR = require("src.render.SpriteRenderer").new(def, "preview")
+            self._previewImage = def.image
+          end
+          local tick = self._lookTick or 0
+          local DIRS = { "down", "left", "up", "right" }
+          local facing = DIRS[(math.floor(tick / 30) % 4) + 1]
+          local phase = (math.floor(tick / 15) % 2 == 0) and 0 or 1
+          local flip = math.floor(tick / 30) % 2 == 0
+          local lg = love.graphics
+          lg.setColor(0, 0, 0, 1)
+          lg.rectangle("line", 124.5, 24.5, 27, 27)
+          lg.setColor(1, 1, 1, 1)
+          self._previewSR:draw(130, 30, 0, 0, facing, phase, flip)
+        end)
         Font.draw("L/R:change A:apply", 6, 128)
       end
 
       local function drawPlayer()
         Font.drawBox(0, 0, 20, 18)
-        Font.draw("PLAYER", 16, 8)
-        Font.draw(tostring(self.playerTarget or "?"), 16, 22)
+        local who = tostring(self.playerTarget or "?")
+        Font.draw(who, 16, 6)
+        -- trainer card: what they carry, what they've done
+        local card = client.cards and client.cards[who]
+        local prof = card and card.profile
+        if prof then
+          Font.draw(("Badges:%d"):format(tonumber(prof.badges) or 0), 12, 18)
+          -- the Pokedollar: "$" has no charmap tile, the yen glyph does
+          Font.draw(("\194\165%d"):format(tonumber(prof.money) or 0), 92, 18)
+          local team = prof.team or {}
+          if #team == 0 then Font.draw("No team data", 12, 30) end
+          for i = 1, math.min(#team, 6) do
+            local mon = team[i]
+            Font.draw((tostring(mon.species or "?"):sub(1, 11)
+              .. " L" .. tostring(mon.level or 0)), 12, 30 + (i - 1) * 10)
+          end
+        else
+          Font.draw("...", 12, 24)
+        end
         local items = playerItems()
         for i, it in ipairs(items) do
-          local y = 44 + (i - 1) * 14
+          local y = 96 + (i - 1) * 12
           Font.draw(it[1], 24, y)
           if self.cursor == i then Font.drawCode(Theme.cursor, 16, y) end
         end

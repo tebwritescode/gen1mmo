@@ -139,6 +139,7 @@ mod.events:on("world.interacted", function(ev)
     -- the screen reads this flag in new() -- Screens.push has no
     -- documented return value, so don't rely on one
     client._openPlayerMenu = who
+    client:requestCard(who) -- badges/money/team arrive while it opens
     mod.ui.push(require("src.core.Game"), "Gen1MMO")
   end)
 end)
