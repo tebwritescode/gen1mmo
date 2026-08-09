@@ -47,18 +47,22 @@ function Skins.baseSprite(skin)
   return "SPRITE_RED"
 end
 
---- Preferred overworld sprite ids for a skin, best first: the tone-variant
---- sheet the transform derived (G1MMO_B<body>_T<tone>, trueColor), then the
---- vanilla body sheet, then RED (the sprite every cache carries). Callers
---- walk the list because a variant can legitimately be missing (no ROM
---- import yet, engine drift) and a look must never make a player invisible.
+--- Preferred overworld sprite ids for a skin, best first: the full
+--- body+tone+outfit combo sheet (outfit 0 = classic body colors, so it
+--- rides the plain tone sheet), then the tone sheet, then the vanilla
+--- body sheet, then RED (the sprite every cache carries). Callers walk
+--- the list because a variant can legitimately be missing and a look
+--- must never make a player invisible.
 function Skins.spriteCandidates(skin)
   skin = Skins.sanitize(skin)
-  return {
-    ("G1MMO_B%d_T%d"):format(skin.body, skin.skin),
-    Skins.baseSprite(skin),
-    "SPRITE_RED",
-  }
+  local list = {}
+  if skin.outfit > 0 then
+    list[#list + 1] = ("G1MMO_B%d_T%d_O%d"):format(skin.body, skin.skin, skin.outfit)
+  end
+  list[#list + 1] = ("G1MMO_B%d_T%d"):format(skin.body, skin.skin)
+  list[#list + 1] = Skins.baseSprite(skin)
+  list[#list + 1] = "SPRITE_RED"
+  return list
 end
 
 --- Back-compat single-id accessor (the base body sheet).

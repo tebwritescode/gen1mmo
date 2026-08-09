@@ -57,6 +57,19 @@ function Players:_spawn(name, x, y, dir, skin)
       local ok, npcId = pcall(function() return self.mod.world:spawnNpc(self.mapId, objDef) end)
       if ok and npcId then
         self.remote[name] = { npcId = npcId, x = x, y = y, dir = dir, skin = skin }
+        -- upgrade to the FULL-tuple sheet (hair color, style accents,
+        -- outfit): generated on demand, swapped straight onto the live
+        -- entity -- no registry involvement, wholly optional
+        pcall(function()
+          local Tonegen = GEN1MMO_INCLUDE("src/tonegen.lua")
+          local def = skin and Tonegen.defFor(skin)
+          if def then
+            local h = self.mod.world:npc(self.mapId, npcId)
+            if h and h.npc then
+              h.npc.sprite = require("src.render.SpriteRenderer").new(def, h.npc.id)
+            end
+          end
+        end)
         return
       end
     end
@@ -136,12 +149,8 @@ function Players:setSkin(name, skin)
   self.skins[name] = skin
   local r = self.remote[name]
   if not r then return end
-  -- Re-sprite only when the rendered sheet would change (body or tone).
-  local before = r.skin and Skins.spriteCandidates(r.skin)[1] or nil
-  r.skin = skin
-  if Skins.spriteCandidates(skin)[1] ~= before then
-    self:_spawn(name, r.x, r.y, r.dir, skin)
-  end
+  -- every field renders now, so any change re-sprites
+  self:_spawn(name, r.x, r.y, r.dir, skin)
 end
 
 --- Iterate live remote entities: callback(name, npcEntity, record).
