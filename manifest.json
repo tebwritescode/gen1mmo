@@ -4,7 +4,7 @@
   "version": "1.5.0",
   "assets_transforms": "transforms.lua",
   "author": "gen1mmo",
-  "description": "PokeMMO-style online play for Gen1Recomp: see other trainers walk the world, chat, customise your look, and make friends. Privacy-first server, no personal data collected.",
+  "description": "An MMO for Gen 1: everyone shares one world on a free public server. No setup, no data collected. See other trainers roam the overworld, chat, customise your look, and make friends.",
   "api": 2,
   "entry": "main.lua",
   "permissions": ["network"],

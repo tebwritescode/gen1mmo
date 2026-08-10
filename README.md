@@ -1,7 +1,8 @@
 # Gen1MMO
 
-**Online play for [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp) —
-other trainers, live in your own save.**
+**An MMO for [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp) — everyone
+shares one world on a free public server, with nothing to host and no data
+collected.**
 
 Install the mod, open GEN1MMO from the START menu, pick a name, and the
 world you already play fills with real people. Chat, show off your look,
