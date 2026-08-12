@@ -475,6 +475,30 @@ return function(mod, client)
         { "pants",     "pieceColors", "Pants" },
         { "pack",      "pieceColors", "Pack" },
       }
+      -- Biker's roster sprite is seated on the bike, not a normal walker --
+      -- not offered as a fresh pick. The catalog SLOT stays put (its index
+      -- is wire-compatible with the server and with anyone who already
+      -- has it), cycling just steps over it.
+      local BODY_SKIP = { [10] = true }
+
+      --- Steps `field`'s current value by dir (+-1), wrapping, skipping any
+      --- index in `skip`. Bounded to #list iterations so an all-skipped
+      --- list (should never happen) can't spin forever.
+      local function stepIndex(field, list, dir, skip)
+        local n = #list
+        local v = client.skin[field] or 0
+        for _ = 1, n do
+          v = (v + dir) % n
+          if not (skip and skip[v]) then break end
+        end
+        return v
+      end
+
+      local function confirmLook()
+        client.status = "Look saved"
+        self._lookSavedUntil = love.timer.getTime() + 1.5
+      end
+
       local function updateLook()
         -- the preview mannequin turns and steps in place
         self._lookTick = (self._lookTick or 0) + 1
@@ -482,14 +506,19 @@ return function(mod, client)
         if input:wasPressed("down") then self.lookIndex = (self.lookIndex % #CATS) + 1 end
         local cat = CATS[self.lookIndex]
         local field, list = cat[1], Skins.catalog[cat[2]]
+        local skip = field == "body" and BODY_SKIP or nil
         if input:wasPressed("left") then
-          client.skin[field] = (((client.skin[field] or 0) - 1) % #list)
+          client.skin[field] = stepIndex(field, list, -1, skip)
         end
         if input:wasPressed("right") then
-          client.skin[field] = (((client.skin[field] or 0) + 1) % #list)
+          client.skin[field] = stepIndex(field, list, 1, skip)
         end
-        if input:wasPressed("a") then client:applySkin(client.skin) end
-        if input:wasPressed("b") then client:applySkin(client.skin); self.view = "menu" end
+        if input:wasPressed("a") then client:applySkin(client.skin); confirmLook() end
+        if input:wasPressed("b") then
+          client:applySkin(client.skin)
+          confirmLook()
+          self.view = "menu"
+        end
       end
 
       -- Diagnostic latch: record EVERY button edge this screen actually
@@ -646,8 +675,10 @@ return function(mod, client)
               self.lookIndex = i
               local list = Skins.catalog[c[2]]
               local step = (cx >= 64) and 1 or -1    -- tap right side = next
-              client.skin[c[1]] = (((client.skin[c[1]] or 0) + step) % #list)
+              local skip = c[1] == "body" and BODY_SKIP or nil
+              client.skin[c[1]] = stepIndex(c[1], list, step, skip)
               client:applySkin(client.skin)
+              confirmLook()
               return
             end
           end
@@ -779,7 +810,8 @@ return function(mod, client)
 
       local function drawLook()
         Font.drawBox(0, 0, 20, 18)
-        Font.draw("YOUR LOOK", 16, 6)
+        local justSaved = self._lookSavedUntil and love.timer.getTime() < self._lookSavedUntil
+        Font.draw(justSaved and "SAVED!" or "YOUR LOOK", 16, 6)
         for i, c in ipairs(CATS) do
           local list = Skins.catalog[c[2]]
           local val = list[(client.skin[c[1]] or 0) + 1] or "?"
