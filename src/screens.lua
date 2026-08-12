@@ -6,6 +6,7 @@
 -- One screen, several "views". B backs out a view or pops the screen.
 
 local Skins = GEN1MMO_INCLUDE("src/skins.lua")
+local Overlay = GEN1MMO_INCLUDE("src/overlay.lua") -- shared wrapLine: nothing gets cut off
 
 local GRID = {
   "ABCDEFGHIJ",
@@ -21,6 +22,7 @@ local GRID = {
 -- underscores/masks are drawn as strokes or mapped to glyphs that exist.
 local MENU_VISIBLE = 8   -- rows y=36..120; row 9 would sit on the border
 local CHAT_VISIBLE = 9   -- rows y=22..118, above the footer
+local CHAT_MAX_CHARS = 18 -- glyphs that fit the box at this margin
 
 return function(mod, client)
   mod.content.screens:register("Gen1MMO", {
@@ -175,7 +177,20 @@ return function(mod, client)
         self.acceptTyped = true
         self.typedThisFrame = false
         self.submitTyped = false
-        pcall(function() love.keyboard.setTextInput(true) end)
+        -- Reported broken on iOS/Phosphorus: the native soft keyboard pops
+        -- up, typed characters never reach the buffer (love.textinput isn't
+        -- landing there the way it does on other ports), and the keyboard
+        -- physically covers the d-pad grid's own OK prompt -- net negative,
+        -- not just unhelpful. Skip SUMMONING it on iOS specifically; the
+        -- d-pad grid (confirmed working there) remains the primary path.
+        -- love.textinput/keypressed stay wired regardless, so a hardware
+        -- keyboard (e.g. an iPad with one attached) still types for free if
+        -- the port delivers those events for it.
+        local os = "unknown"
+        pcall(function() os = love.system.getOS() end)
+        if os ~= "iOS" then
+          pcall(function() love.keyboard.setTextInput(true) end)
+        end
       end
 
       function self:leaveText(nextView)
@@ -414,8 +429,22 @@ return function(mod, client)
         if input:wasPressed("b") or input:wasPressed("a") then self.view = "menu" end
       end
 
+      -- Wrapped chat rows: a long message spans several rows instead of being
+      -- cut off at CHAT_MAX_CHARS. Scrolling (below) moves by ROW now, not by
+      -- raw message, so a wrapped message pages through smoothly. Recomputed
+      -- on demand -- client.chat is capped at 40 entries, so this is cheap.
+      local function buildChatRows()
+        local rows = {}
+        for _, msg in ipairs(client.chat) do
+          for _, wline in ipairs(Overlay.wrapLine(msg, CHAT_MAX_CHARS)) do
+            rows[#rows + 1] = wline
+          end
+        end
+        return rows
+      end
+
       local function updateChat()
-        local maxOff = math.max(0, #client.chat - CHAT_VISIBLE)
+        local maxOff = math.max(0, #buildChatRows() - CHAT_VISIBLE)
         if input:wasPressed("up") then self.chatOff = math.min(self.chatOff + 1, maxOff) end
         if input:wasPressed("down") then self.chatOff = math.max(self.chatOff - 1, 0) end
         if input:wasPressed("b") then self.view = "menu" end
@@ -592,7 +621,7 @@ return function(mod, client)
         elseif self.view == "chat" then
           -- top edge pages back through history, bottom edge pages forward;
           -- anywhere else opens Say (the pre-scroll behavior)
-          local maxOff = math.max(0, #client.chat - CHAT_VISIBLE)
+          local maxOff = math.max(0, #buildChatRows() - CHAT_VISIBLE)
           if cy <= 16 and maxOff > 0 then
             self.chatOff = math.min(self.chatOff + CHAT_VISIBLE, maxOff)
             return
@@ -689,7 +718,8 @@ return function(mod, client)
         Font.drawBox(0, 0, 20, 18)
         -- ">" has no tile; "<scope>" drew as "scope " anyway, so skip it
         Font.draw("CHAT: " .. self.scope, 8, 6)
-        local lines = client.chat
+        -- wrapped rows: nothing is cut off anymore, just paged across rows
+        local lines = buildChatRows()
         local maxOff = math.max(0, #lines - CHAT_VISIBLE)
         if self.chatOff > maxOff then self.chatOff = maxOff end
         local last = #lines - self.chatOff
@@ -697,7 +727,6 @@ return function(mod, client)
         for i = start, last do
           local y = 22 + (i - start) * 12
           local line = lines[i]
-          if #line > 18 then line = line:sub(1, 18) end -- 18 glyphs fit the box
           -- the server censors profanity to "*", which has no tile; show dots
           Font.draw((line:gsub("%*", "·")), 6, y)
         end

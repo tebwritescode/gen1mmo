@@ -1,14 +1,22 @@
 {
   "id": "gen1mmo",
   "name": "Gen1MMO",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "assets_transforms": "transforms.lua",
   "author": "gen1mmo",
   "description": "An MMO for Gen 1: everyone shares one world on a free public server. No setup, no data collected. See other trainers roam the overworld, chat, customise your look, and make friends.",
   "api": 2,
   "entry": "main.lua",
-  "permissions": ["network"],
+  "permissions": [
+    "network"
+  ],
   "homepage": "https://github.com/tebwritescode/gen1mmo",
   "github": "tebwritescode/gen1mmo",
-  "tags": ["online", "multiplayer", "chat", "customisation", "tools"]
+  "tags": [
+    "online",
+    "multiplayer",
+    "chat",
+    "customisation",
+    "tools"
+  ]
 }

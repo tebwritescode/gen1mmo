@@ -14,6 +14,30 @@ local SHOW_SECONDS = 6
 local FADE_SECONDS = 1.5
 local MAX_CHARS = 19 -- 160px wide panel, 4px margins, 8px glyphs
 local ROW = 12
+-- Hard ceiling on rendered rows so one pile of long messages can't grow the
+-- panel past the screen; the server caps a single chat line at 200 chars,
+-- which wraps to ~11 rows, so 14 comfortably fits the worst case unwrapped.
+local ROW_CAP = 14
+
+--- Greedy word-wrap: never DROPS a character (unlike a hard substring cut).
+--- A single token longer than maxChars is hard-split so it still shows in
+--- full across rows, rather than vanishing past the panel edge.
+local function wrapLine(text, maxChars)
+  local rows, cur = {}, ""
+  for word in text:gmatch("%S+") do
+    while #word > maxChars do
+      if #cur > 0 then rows[#rows + 1] = cur; cur = "" end
+      rows[#rows + 1] = word:sub(1, maxChars)
+      word = word:sub(maxChars + 1)
+    end
+    if #cur == 0 then cur = word
+    elseif #cur + 1 + #word <= maxChars then cur = cur .. " " .. word
+    else rows[#rows + 1] = cur; cur = word end
+  end
+  rows[#rows + 1] = cur -- always at least one row, even for ""
+  return rows
+end
+Overlay.wrapLine = wrapLine -- exposed for tests
 
 function Overlay.install(mod, client)
   local Font = mod.ui.Font
@@ -98,31 +122,48 @@ function Overlay.install(mod, client)
       while #visible > maxLines do table.remove(visible, 1) end
       if #visible == 0 then return end
 
+      -- Expand each visible message into its wrapped rows, carrying the SAME
+      -- fade alpha (keyed to the message's own arrival time) across every row
+      -- it produces, so a long message fades as one unit, not row-by-row.
+      -- Nothing is ever cut off; a wrapped message just takes more rows.
+      local function rowsFor(list)
+        local rows = {}
+        for _, e in ipairs(list) do
+          local a = math.min(1, (SHOW_SECONDS - (now - e.at)) / FADE_SECONDS)
+          local text = (e.text:gsub("%*", "\194\183")) -- censor "*" has no tile; mid-dot does
+          for _, wline in ipairs(wrapLine(text, MAX_CHARS)) do
+            rows[#rows + 1] = { text = wline, a = a }
+          end
+        end
+        return rows
+      end
+      local rows = rowsFor(visible)
+      -- If wrapping pushed the total past ROW_CAP, drop the OLDEST WHOLE
+      -- messages (never a message's tail rows alone -- that would orphan a
+      -- fragment that reads like it's missing its start).
+      while #rows > ROW_CAP and #visible > 1 do
+        table.remove(visible, 1)
+        rows = rowsFor(visible)
+      end
+
       local lg = love.graphics
       lg.push("all")
       lg.translate(vp.gameX or 0, vp.gameY or 0)
       lg.scale((vp.scale or 1) * sizePct)
 
-      local panelH = #visible * ROW + 6
+      local panelH = #rows * ROW + 6
       local alphaMax = 0
-      for _, e in ipairs(visible) do
-        local a = math.min(1, (SHOW_SECONDS - (now - e.at)) / FADE_SECONDS)
-        if a > alphaMax then alphaMax = a end
-      end
+      for _, r in ipairs(rows) do if r.a > alphaMax then alphaMax = r.a end end
       lg.setColor(1, 1, 1, bgA * alphaMax)
       lg.rectangle("fill", 0, 0, 160, panelH)
       lg.setColor(0, 0, 0, bgA * alphaMax)
       lg.rectangle("fill", 0, panelH, 160, 1) -- the panel's lower rule
 
-      for i, e in ipairs(visible) do
-        local a = math.min(1, (SHOW_SECONDS - (now - e.at)) / FADE_SECONDS)
+      for i, r in ipairs(rows) do
         -- glyph tiles are black ink; setColor's alpha is the only channel
         -- that shows, which is exactly the fade we want
-        lg.setColor(0, 0, 0, textA * a)
-        local line = e.text
-        if #line > MAX_CHARS then line = line:sub(1, MAX_CHARS) end
-        -- censor "*" has no tile; the mid-dot does
-        Font.draw((line:gsub("%*", "\194\183")), 4, 4 + (i - 1) * ROW)
+        lg.setColor(0, 0, 0, textA * r.a)
+        Font.draw(r.text, 4, 4 + (i - 1) * ROW)
       end
       lg.pop()
     end)
