@@ -65,6 +65,7 @@ mod.options:define({
     choices = { { "2", 2 }, { "3", 3 }, { "4", 4 }, { "6", 6 } } },
   { key = "chatAlwaysOn", label = "CHAT ALWAYS ON", type = "toggle", default = false },
   { key = "chatOverlay", label = "CHAT OVERLAY", type = "toggle", default = true },
+  { key = "statusLight", label = "STATUS LIGHT", type = "toggle", default = true },
   { key = "emoteBar", label = "EMOTE BAR", type = "toggle", default = true },
   { key = "geekStats", label = "GEEK STATS", type = "toggle", default = false },
   { key = "autoConnect", label = "AUTO-CONNECT", type = "toggle", default = true },
@@ -269,12 +270,20 @@ end
 -- live overworld instead, the same tap is offered to the quick emote bar
 -- (src/emotebar.lua) before falling through to the engine's own touch
 -- controls. Additive either way: buttons still work.
+--
+-- viewportOr (not a bare client._vp read): render.hud stashes client._vp
+-- itself, and on some devices/pipelines a tap can land before that has ever
+-- fired (or between frames where it goes stale), which left every touch
+-- path here silently inert while the SAME screens still drew fine -- their
+-- render.hud hook already falls back through viewportOr, so drawing never
+-- exposed the gap. Chat drag-to-scroll and the quick action bar both go
+-- through this one hook, so both go dead together and come back together.
 mod.hooks:wrap("input.pointer", function(next, game, ev)
   local consumed = false
   pcall(function()
     if not ev then return end
     local top = game.stack and game.stack:top()
-    local vp = client._vp
+    local vp = Overlay.viewportOr(client._vp)
     local vpOk = vp and vp.gameWidth and vp.gameWidth > 0
       and vp.gameHeight and vp.gameHeight > 0
     if top and top.screenId == "Gen1MMO" and vpOk then

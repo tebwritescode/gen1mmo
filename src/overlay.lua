@@ -84,10 +84,11 @@ function Overlay.install(mod, client)
     if type(vp) == "table" then client._vp = vp end
     vp = viewportOr(vp)
 
-    -- Connection dot: always-on, corner of the playfield. Green = online
-    -- and snappy, orange = online but slow / still connecting, red = not
-    -- connected. THE answer to "am I even online right now?".
+    -- Connection dot: corner of the playfield, on by default. Green =
+    -- online and snappy, orange = online but slow / still connecting, red
+    -- = not connected. THE answer to "am I even online right now?".
     pcall(function()
+      if not mod.options:get("statusLight") then return end
       local Game = require("src.core.Game")
       local ow = Game.overworld
       if not ow or game.stack:top() ~= ow then return end

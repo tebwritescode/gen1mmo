@@ -1,7 +1,7 @@
 {
   "id": "gen1mmo",
   "name": "Gen1MMO",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "assets_transforms": "transforms.lua",
   "author": "gen1mmo",
   "description": "An MMO for Gen 1: everyone shares one world on a free public server. No setup, no data collected. See other trainers roam the overworld, chat, customise your look, and make friends.",
