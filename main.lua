@@ -189,58 +189,11 @@ do
   end
 end
 
--- Reconnect on resume: a mobile OS suspends networking while the app is
--- backgrounded/asleep, so a socket that looked fine when you paused is often
--- already dead by the time you come back -- and the one-shot boot auto-
--- connect below never fires again to notice. love.focus/love.visible are the
--- engine's own real signals for exactly this transition (its own main.lua
--- already defines both, for input-reset and pause purposes); wrapped, never
--- replaced, same pattern as the textinput/keypressed wraps above.
-do
-  local lastResumeAttempt = 0
-  -- 3x the client's own 30s ping interval: by 90s of total silence from the
-  -- server, on a connection the app THINKS is live, something is wrong --
-  -- most likely a zombie socket from OS-suspended networking, which can sit
-  -- accepting writes into a black hole for a while before erroring on its
-  -- own. Force a clean reconnect rather than trust it.
-  local STALE_AFTER = 90
-  local function tryResumeReconnect()
-    if not client.autoConnect then return end
-    if not client:storedLoginName() then return end -- never logged in: nothing to resume
-    local now = love.timer.getTime()
-    if now - lastResumeAttempt < 5 then return end -- debounce rapid focus flicker
-
-    if client.state == "offline" then
-      lastResumeAttempt = now
-      client:connectStored(client.host, client.port)
-    elseif client.state ~= "connecting" then
-      -- "looks" connected (greeted/authing/playing) -- but a resume is
-      -- exactly when that stops being trustworthy. lastRx is nil before the
-      -- first message ever arrives (a slow-but-genuine handshake, not a
-      -- zombie); only act once we have a real baseline to judge staleness by.
-      local net = client.net
-      if net and net.lastRx and (now - net.lastRx) > STALE_AFTER then
-        lastResumeAttempt = now
-        client:disconnect()
-        client:connectStored(client.host, client.port)
-      end
-    end
-  end
-  local prevFocus = love.focus
-  love.focus = function(f, ...)
-    if f then tryResumeReconnect() end -- true = focus GAINED (foregrounded)
-    if prevFocus then return prevFocus(f, ...) end
-  end
-  local prevVisible = love.visible
-  love.visible = function(v, ...)
-    if v then tryResumeReconnect() end -- true = visible again (unminimized/restored)
-    if prevVisible then return prevVisible(v, ...) end
-  end
-end
-
 -- Auto-connect: once someone has logged in before, later sessions go online
 -- on their own as soon as the world is up (stored verifier, never the
--- password). One attempt per session; Disconnect / Forget login in the menu.
+-- password). One attempt per session via this hook; ONGOING reconnection
+-- after that is the general watchdog below. Disconnect / Forget login in
+-- the menu opts back out.
 local triedAutoConnect = false
 mod.events:on("map.entered", function()
   if triedAutoConnect or not client.autoConnect then return end
@@ -249,6 +202,51 @@ mod.events:on("map.entered", function()
     client:connectStored(client.host, client.port)
   end
 end)
+
+-- General reconnect watchdog: covers EVERY reason the connection ends up
+-- down, not just resuming from sleep -- a dropped WiFi/mobile network while
+-- the app stays in the foreground the whole time, a server-side kick, a
+-- network blip that silently stalls one side without ever producing a
+-- socket error. Checked every frame from the pump hook below; a state check
+-- plus a growing backoff (so a genuinely down server is not hammered
+-- forever) covers all of those with ONE mechanism instead of reacting to
+-- specific transitions like focus/visible alone would.
+local reconnectBackoff = 5 -- seconds; doubles after each attempt that doesn't reach "playing"
+local RECONNECT_MAX_BACKOFF = 60
+local lastReconnectAttempt = 0
+-- Same zombie-socket problem as a resume: a connection can LOOK alive
+-- (state stays "playing"/"authing"/"greeted") while actually being dead --
+-- OS-suspended networking, or a drop that never produced a proper TCP error
+-- on this side. net.lastRx (net.lua) is the real liveness signal; 90s of
+-- total silence (3x the 30s ping interval) means something is wrong.
+local STALE_AFTER = 90
+local function pollReconnect()
+  if not triedAutoConnect then return end -- let the boot attempt above go first
+  if client.state == "playing" then
+    reconnectBackoff = 5 -- fully online: reset the backoff for next time
+    return
+  end
+  if not client.autoConnect or not client:storedLoginName() then return end
+  local now = love.timer.getTime()
+
+  if client.state == "offline" then
+    if now - lastReconnectAttempt < reconnectBackoff then return end
+    lastReconnectAttempt = now
+    reconnectBackoff = math.min(reconnectBackoff * 2, RECONNECT_MAX_BACKOFF)
+    client:connectStored(client.host, client.port)
+  elseif client.state ~= "connecting" then
+    -- greeted/authing: looks mid-handshake, but that is indistinguishable
+    -- from wedged until lastRx has a first real value to judge against
+    local net = client.net
+    if net and net.lastRx and (now - net.lastRx) > STALE_AFTER
+       and now - lastReconnectAttempt >= reconnectBackoff then
+      lastReconnectAttempt = now
+      reconnectBackoff = math.min(reconnectBackoff * 2, RECONNECT_MAX_BACKOFF)
+      client:disconnect()
+      client:connectStored(client.host, client.port)
+    end
+  end
+end
 
 -- Touch: a tap that misses the on-screen controls is routed here. When the
 -- GEN1MMO screen is open, map the tap into 160x144 canvas space and let it
@@ -298,9 +296,12 @@ mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
 end)
 
 -- Per-frame pump: render.zones runs every overworld frame. We do the network
--- pump here and pass the zones through untouched.
+-- pump here, then the reconnect watchdog (needs pump to have already
+-- processed this frame's net.closed/state transitions), and pass the zones
+-- through untouched.
 mod.hooks:wrap("render.zones", function(next, game, zones)
   client:pump()
+  pollReconnect()
   return next(game, zones)
 end)
 
