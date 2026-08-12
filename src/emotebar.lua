@@ -1,9 +1,10 @@
--- Quick emote bar: a small collapsible button over the live overworld, so
--- sending an emote never needs a menu. Tap the toggle to reveal the three
--- faces, tap a face to send it (closes itself), tap the toggle again (or
--- anywhere else) to close without sending. Screen-space HUD, drawn inside
--- the same playfield transform overlay.lua's connection dot uses, so it
--- stays pixel-true to the 160x144 canvas at any window scale.
+-- Quick action bar: two small buttons over the live overworld, so neither
+-- chatting nor emoting needs a menu. Left button collapses/expands the
+-- ambient chat panel (overlay.lua) on the spot; right button reveals the
+-- three emote faces, tap one to send it (closes itself), tap the toggle
+-- again (or anywhere else) to close without sending. Screen-space HUD,
+-- drawn inside the same playfield transform overlay.lua's connection dot
+-- uses, so it stays pixel-true to the 160x144 canvas at any window scale.
 
 local EmoteBar = {}
 
@@ -12,13 +13,14 @@ local GAP = 2
 local KINDS = { 0, 1, 2 } -- heart, wave, fist -- matches EMOTE_FILES everywhere else
 local FILES = { [0] = "heart", [1] = "wave", [2] = "fist" }
 
---- Button rects for the current state (collapsed = just the toggle,
---- expanded = toggle + one row per emote below it). Pure function of
---- `open` and the fixed layout constants, so draw and hit-test can never
---- disagree about where anything is.
+--- Button rects for the current state (collapsed = just the two toggles,
+--- expanded = + one row per emote below the emote toggle). Pure function
+--- of `open` and the fixed layout constants, so draw and hit-test can
+--- never disagree about where anything is.
 local function rects(open)
   local toggle = { x = 160 - BTN - 2, y = 10, w = BTN, h = BTN }
-  local list = { toggle = toggle }
+  local chat = { x = toggle.x - BTN - GAP, y = 10, w = BTN, h = BTN }
+  local list = { toggle = toggle, chat = chat }
   if open then
     for i, kind in ipairs(KINDS) do
       list[i] = { x = toggle.x, y = toggle.y + i * (BTN + GAP), w = BTN, h = BTN, kind = kind }
@@ -68,6 +70,14 @@ function EmoteBar.install(mod, client)
   local function tap(game, cx, cy)
     if not activeOver(game) then return false end
     local rows = rects(client._emoteBarOpen)
+    if hit(rows.chat, cx, cy) then
+      -- Flips whatever is actually showing right now, not the saved
+      -- setting: mod.options has no mod-facing :set (only the Options UI
+      -- writes it), so this is a session-only override on top of it --
+      -- exactly what "quickly collapse/open while playing" asks for.
+      client._chatBarForced = not client:overlayEnabled()
+      return true
+    end
     if hit(rows.toggle, cx, cy) then
       client._emoteBarOpen = not client._emoteBarOpen
       return true
@@ -109,7 +119,23 @@ function EmoteBar.install(mod, client)
         lg.draw(image, r.x + 2, r.y + 2, 0,
           (r.w - 4) / image:getWidth(), (r.h - 4) / image:getHeight())
       end
+      -- Speech-bubble glyph drawn from primitives (no bundled asset for
+      -- this one): a rounded panel with two short lines standing in for
+      -- text. Dims when chat is currently hidden, so the button's own
+      -- state is visible without opening it.
+      local function chatIcon(r)
+        local on = client:overlayEnabled()
+        lg.setColor(1, 1, 1, on and 1 or 0.35)
+        lg.rectangle("fill", r.x + 2, r.y + 3, r.w - 4, r.h - 7, 1, 1)
+        lg.setColor(0, 0, 0, on and 0.8 or 0.35)
+        lg.rectangle("line", r.x + 2, r.y + 3, r.w - 4, r.h - 7, 1, 1)
+        lg.setColor(0, 0, 0, on and 0.8 or 0.35)
+        lg.rectangle("fill", r.x + 4, r.y + 5, r.w - 8, 1)
+        lg.rectangle("fill", r.x + 4, r.y + 7, r.w - 11, 1)
+      end
       local rows = rects(client._emoteBarOpen)
+      panel(rows.chat)
+      chatIcon(rows.chat)
       panel(rows.toggle)
       icon(rows.toggle, 0) -- heart doubles as the generic "react" glyph
       if client._emoteBarOpen then
