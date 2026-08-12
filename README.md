@@ -83,6 +83,10 @@ Multiplayer (connecting, chat, sync) is confirmed working on Desktop and
 Android. iOS support is still being verified — the overworld, looks, and
 everything offline work there today.
 
+The on-screen quick action bar (the small chat/emote buttons over the
+overworld) is a known issue on touch right now — under active work. Emote
+via the Start Menu, and everything else in this table, work as listed.
+
 | | |
 |---|---|
 | Live player sync, nametags, walk-through collision | ✅ |
@@ -91,6 +95,7 @@ everything offline work there today.
 | Friends, whispers (friends-only), player interact menu | ✅ |
 | Trainer cards: badges, money, team, history badges, titles | ✅ |
 | Emotes (heart / wave / fist) dropped as world breadcrumbs | ✅ |
+| Quick action bar (on-screen chat/emote buttons, touch) | 🚧 |
 | Encrypted transport with pinned server identity | ✅ |
 | Accounts, recovery codes, in-game reports, moderation | ✅ |
 | Hair/outfit sprite art, trading, more swag | 🔜 |
