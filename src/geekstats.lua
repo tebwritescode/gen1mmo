@@ -10,7 +10,7 @@ function Geek.install(mod, client)
 
   mod.hooks:wrap("render.hud", function(next, game, vp)
     next(game, vp)
-    if not client.geekStats then return end
+    if not mod.options:get("geekStats") then return end
     pcall(function()
       font = font or love.graphics.newFont(10)
       local lg = love.graphics
@@ -49,7 +49,7 @@ function Geek.install(mod, client)
           tostring(client.diagSheets or "?")),
         ("skin b%d t%d h%d hc%d o%d"):format(client.skin.body, client.skin.skin,
           client.skin.hair, client.skin.hairColor, client.skin.outfit),
-        ("render %s  overlay %s"):format(pipe, client.overlayOn and "on" or "off"),
+        ("render %s  overlay %s"):format(pipe, client:overlayEnabled() and "on" or "off"),
         ("features %s  latest %s"):format(
           client.features and (client.features.stats and "stats " or "") or "-",
           tostring(client.latestMod or "-")),

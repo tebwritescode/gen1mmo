@@ -53,6 +53,14 @@ return function(mod, client)
         self.view = "player"
         self.playerTarget = client._openPlayerMenu
         client._openPlayerMenu = nil
+      elseif client._openChatDirect then
+        -- Start Menu's CHAT row: straight into chat, no menu stop first
+        self.view = "chat"
+        client._openChatDirect = nil
+      elseif client._openEmoteDirect then
+        -- Start Menu's EMOTE row: straight into the emote picker
+        self.view = "emote"
+        client._openEmoteDirect = nil
       end
 
       local input = game.input
@@ -80,14 +88,17 @@ return function(mod, client)
         return items
       end
 
+      -- Chat and Emote are direct Start Menu rows now (main.lua); this list
+      -- is everything else Gen1MMO does, reached via Options > GEN1MMO >
+      -- OPEN. Settings (overlay/geek stats/auto-connect/chat panel tuning)
+      -- moved to Options > MODS > GEN1MMO > OPTIONS.. -- mod.options owns
+      -- them, so there is no row for them here anymore either.
       local function menuItems()
         if client.state == "playing" then
           return withPendingRows(withRecoveryRow {
-            { "Chat", function() self.view = "chat" end },
             { "Say something", function()
               self:enterText("SAY:", false, function(t) client:say(self.scope, t) end)
             end },
-            { "Emote", function() self.view = "emote" end },
             { "Change look", function() self.view = "look" end },
             { "Add friend", function()
               self:enterText("FRIEND:", false, function(t) client:addFriend(t) end)
@@ -107,15 +118,6 @@ return function(mod, client)
             { "Server info", function()
               client:requestStats()
               self.view = "stats"
-            end },
-            { "Overlay: " .. (client.overlayOn and "ON" or "OFF"), function()
-              client.overlayOn = not client.overlayOn
-              mod.save:set("chat_overlay", client.overlayOn)
-            end },
-            { "Chat box", function() self.view = "chatbox" end },
-            { "Geek stats: " .. (client.geekStats and "ON" or "OFF"), function()
-              client.geekStats = not client.geekStats
-              mod.save:set("geek_stats", client.geekStats)
             end },
             { "Disconnect", function() client:disconnect() end },
           })
@@ -148,15 +150,6 @@ return function(mod, client)
             -- "Set server" is hidden for the beta: the default already points
             -- at the official server, and the row exposed its address. Self-
             -- hosters still override via config.lua / the saved server_host.
-            { "Auto-connect: " .. (client.autoConnect and "ON" or "OFF"), function()
-              client.autoConnect = not client.autoConnect
-              mod.save:set("auto_connect", client.autoConnect)
-            end },
-            { "Chat box", function() self.view = "chatbox" end },
-            { "Geek stats: " .. (client.geekStats and "ON" or "OFF"), function()
-              client.geekStats = not client.geekStats
-              mod.save:set("geek_stats", client.geekStats)
-            end },
             { "Forget login", function()
               client:forgetLogin()
               client.status = "Saved login cleared"
@@ -396,43 +389,6 @@ return function(mod, client)
         if input:wasPressed("a") or input:wasPressed("b") then self.view = "menu" end
       end
 
-      -- chat-box panel tuning: each row cycles through fixed steps
-      local CHATBOX_ROWS = {
-        { "Size",   "size",  { 0.5, 0.65, 0.75, 0.85, 1.0 }, "%d%%" },
-        { "Text",   "text",  { 0.4, 0.6, 0.8, 1.0 },          "%d%%" },
-        { "Backgr", "bg",    { 0, 0.25, 0.5, 0.7, 0.85, 1.0 }, "%d%%" },
-        { "Lines",  "lines", { 2, 3, 4, 6 },                   "%d" },
-        -- ON keeps the last N messages up permanently (no 6s fade-out) --
-        -- Size/Text/Backgr above still apply, so it is still opacity- and
-        -- size-controlled, just never disappears on its own.
-        { "Always", "alwaysOn", { 0, 1 } },
-      }
-      self.cbIndex = 1
-
-      local function cbStep(row, dirn)
-        local steps = row[3]
-        local cur = client.ovl[row[2]]
-        local at = 1
-        for i, v in ipairs(steps) do
-          if math.abs(v - (cur or steps[1])) < 0.001 then at = i break end
-        end
-        at = ((at - 1 + dirn) % #steps) + 1
-        client.ovl[row[2]] = steps[at]
-        mod.save:set("ovl_" .. row[2], steps[at])
-      end
-
-      local function updateChatbox()
-        if input:wasPressed("up") then
-          self.cbIndex = self.cbIndex > 1 and self.cbIndex - 1 or #CHATBOX_ROWS
-        end
-        if input:wasPressed("down") then
-          self.cbIndex = self.cbIndex < #CHATBOX_ROWS and self.cbIndex + 1 or 1
-        end
-        if input:wasPressed("left") then cbStep(CHATBOX_ROWS[self.cbIndex], -1) end
-        if input:wasPressed("right") then cbStep(CHATBOX_ROWS[self.cbIndex], 1) end
-        if input:wasPressed("b") or input:wasPressed("a") then self.view = "menu" end
-      end
-
       -- Wrapped chat rows: a long message spans several rows instead of being
       -- cut off at CHAT_MAX_CHARS. Scrolling (below) moves by ROW now, not by
       -- raw message, so a wrapped message pages through smoothly. Recomputed
@@ -525,8 +481,7 @@ return function(mod, client)
         elseif self.view == "player" then updatePlayer()
         elseif self.view == "stats" then updateStats()
         elseif self.view == "emote" then updateEmote()
-        elseif self.view == "history" then updateHistory()
-        elseif self.view == "chatbox" then updateChatbox() end
+        elseif self.view == "history" then updateHistory() end
       end
 
       -- ----- touch: tap items/letters directly (cx,cy in 160x144 canvas
@@ -612,17 +567,17 @@ return function(mod, client)
               return
             end
           end
-        elseif self.view == "chatbox" then
-          for i = 1, #CHATBOX_ROWS do
-            local y = 28 + (i - 1) * 14
-            if cy >= y - 3 and cy <= y + 11 then
-              self.cbIndex = i
-              cbStep(CHATBOX_ROWS[i], (cx >= 80) and 1 or -1)
-              return
-            end
-          end
-          self.view = "menu" -- tap outside the rows backs out
         elseif self.view == "chat" then
+          -- Chat is a direct Start Menu destination now (no menu stop
+          -- first), so touch needs its own way back to the rest of Gen1MMO
+          -- (login, friends, whisper, look, disconnect) -- a controller
+          -- already has B for that (updateChat). A fixed corner, checked
+          -- before the scroll zones below, so it works regardless of
+          -- whether there is anything to scroll.
+          if cy >= 122 and cx >= 112 then
+            self.view = "menu"
+            return
+          end
           -- top edge pages back through history, bottom edge pages forward
           local maxOff = math.max(0, #buildChatRows() - CHAT_VISIBLE)
           if cy <= 16 and maxOff > 0 then
@@ -774,8 +729,8 @@ return function(mod, client)
         end
         if self.chatOff < maxOff then drawUpArrow(144, 6) end
         if self.chatOff > 0 then Font.draw("▼", 144, 130) end
-        -- "=" has no tile either; ":" does
-        Font.draw("A:say L/R:scope", 6, 130)
+        Font.draw("A:say L/R:scp", 6, 130)
+        Font.draw("MENU", 116, 130) -- tap zone: onTap's chat branch, cx>=112
       end
 
       local function drawLook()
@@ -929,43 +884,6 @@ return function(mod, client)
         Font.draw("A/B: back", 12, 128)
       end
 
-      local function drawChatbox()
-        Font.drawBox(0, 0, 20, 18)
-        Font.draw("CHAT BOX", 16, 8)
-        for i, row in ipairs(CHATBOX_ROWS) do
-          local v = client.ovl[row[2]] or row[3][1]
-          local shown = row[2] == "lines" and tostring(v)
-            or row[2] == "alwaysOn" and (v == 1 and "ON" or "OFF")
-            or (tostring(math.floor(v * 100 + 0.5)) .. " pct")
-          local y = 28 + (i - 1) * 14
-          Font.draw(row[1] .. ": " .. shown, 16, y)
-          if self.cbIndex == i then Font.drawCode(Theme.cursor, 8, y) end
-        end
-        -- ACTUAL live preview: a real panel at the current size/opacity, the
-        -- same way overlay.lua draws its own (lg.scale around Font.draw --
-        -- glyph tiles are black ink, so setColor's alpha is what fades them,
-        -- identical mechanism, just static here instead of time-based).
-        -- The old version only ever drew static text and called it "live" --
-        -- caught in testing; this one actually moves when you press L/R.
-        local sizePct = client.ovl.size or 0.75
-        local bgA = client.ovl.bg == nil and 0.85 or client.ovl.bg
-        local textA = client.ovl.text or 1.0
-        local pw, ph = 144 * sizePct, 16 * sizePct
-        local px, py = (160 - pw) / 2, 94
-        local lg = love.graphics
-        lg.setColor(1, 1, 1, bgA)
-        lg.rectangle("fill", px, py, pw, ph)
-        lg.push("all")
-        lg.translate(px + 2, py + 2)
-        lg.scale(sizePct, sizePct)
-        lg.setColor(0, 0, 0, textA)
-        Font.draw("Sample chat line", 0, 0)
-        lg.pop()
-        lg.setColor(1, 1, 1, 1)
-
-        Font.draw("L/R:adjust A/B:back", 8, 116)
-      end
-
       local function drawKey(code)
         Font.drawBox(0, 0, 20, 18)
         Font.draw("YOUR RECOVERY KEY", 12, 10)
@@ -1006,8 +924,7 @@ return function(mod, client)
         elseif self.view == "player" then drawPlayer()
         elseif self.view == "stats" then drawStats()
         elseif self.view == "emote" then drawEmote()
-        elseif self.view == "history" then drawHistory()
-        elseif self.view == "chatbox" then drawChatbox() end
+        elseif self.view == "history" then drawHistory() end
       end
 
       return self

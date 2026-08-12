@@ -47,9 +47,17 @@ function Overlay.install(mod, client)
   local origLog = client.log
   client.log = function(self, line)
     recent[#recent + 1] = { text = tostring(line), at = love.timer.getTime() }
-    local keep = (client.ovl and client.ovl.lines) or 4
+    local keep = mod.options:get("chatLines") or 4
     while #recent > math.max(keep, 6) do table.remove(recent, 1) end
     return origLog(self, line)
+  end
+
+  -- The panel's own on/off, minus a runtime override: a render crash below
+  -- self-disables for the rest of the session (never a persisted write --
+  -- mod.options has no mod-facing :set, ManagerState's UI is the only
+  -- writer -- so this stays a plain runtime flag on client instead).
+  function client:overlayEnabled()
+    return not self._overlayCrashed and mod.options:get("chatOverlay") == true
   end
 
   -- Under render-pipeline mods (worldOverride, e.g. Dramatic Shape Voxel)
@@ -100,23 +108,23 @@ function Overlay.install(mod, client)
       lg.pop()
     end)
 
-    if not client.overlayOn or client.state ~= "playing" then return end
+    if not client:overlayEnabled() or client.state ~= "playing" then return end
     local ok, err = pcall(function()
       local Game = require("src.core.Game")
       local ow = Game.overworld
       -- only over a live overworld; menus and battles own their screen
       if not ow or game.stack:top() ~= ow then return end
-      -- user-tunable panel (Chat box settings in the GEN1MMO menu):
+      -- user-tunable panel (Options > MODS > GEN1MMO > OPTIONS..):
       -- size = fraction of the playfield scale, bg/text = opacities
-      local cfg = client.ovl or {}
-      local sizePct = cfg.size or 0.75
-      local bgA = cfg.bg == nil and 0.85 or cfg.bg
-      local textA = cfg.text or 1.0
-      local maxLines = cfg.lines or 4
-      -- "Always" in Chat box settings: keeps the last maxLines messages up
+      local sizePct = mod.options:get("chatSize") or 0.75
+      local bgA = mod.options:get("chatBg")
+      if bgA == nil then bgA = 0.85 end
+      local textA = mod.options:get("chatText") or 1.0
+      local maxLines = mod.options:get("chatLines") or 4
+      -- "Chat always on" in the options: keeps the last maxLines messages up
       -- permanently instead of fading after SHOW_SECONDS. Size/opacity above
       -- still fully apply -- this only removes the timer, not the tuning.
-      local alwaysOn = cfg.alwaysOn == 1
+      local alwaysOn = mod.options:get("chatAlwaysOn") == true
 
       local now = love.timer.getTime()
       local visible = {}
@@ -180,7 +188,7 @@ function Overlay.install(mod, client)
     if not ok then
       -- never let the HUD take a frame down -- but say WHY it went dark,
       -- so a device report can quote the reason instead of "it vanished"
-      client.overlayOn = false
+      client._overlayCrashed = true
       pcall(function() client:log("Overlay off: " .. tostring(err)) end)
     end
   end)

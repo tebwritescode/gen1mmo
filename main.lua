@@ -46,23 +46,34 @@ end
 local client = Client.new(mod)
 -- own build string, read from the manifest so it can never drift
 client.version = ((mod:read("manifest.json") or ""):match('"version"%s*:%s*"([^"]+)"')) or "?"
-client.overlayOn = mod.save:get("chat_overlay", true)
-client.autoConnect = mod.save:get("auto_connect", true)
+
+-- Every Gen1MMO setting lives in the vanilla Options > MODS > GEN1MMO >
+-- OPTIONS.. screen -- exactly where every other mod's settings show up,
+-- not a bespoke screen of our own. mod.options:get reads it live wherever
+-- a setting is needed below, so there is nothing to cache or keep in sync;
+-- ManagerState (the mod manager) is the only writer.
+mod.options:define({
+  { key = "chatSize", label = "CHAT SIZE", type = "choice", default = 0.75,
+    choices = { { "50%", 0.5 }, { "65%", 0.65 }, { "75%", 0.75 },
+                { "85%", 0.85 }, { "100%", 1.0 } } },
+  { key = "chatText", label = "CHAT TEXT", type = "choice", default = 1.0,
+    choices = { { "40%", 0.4 }, { "60%", 0.6 }, { "80%", 0.8 }, { "100%", 1.0 } } },
+  { key = "chatBg", label = "CHAT BG", type = "choice", default = 0.85,
+    choices = { { "0%", 0 }, { "25%", 0.25 }, { "50%", 0.5 },
+                { "70%", 0.7 }, { "85%", 0.85 }, { "100%", 1.0 } } },
+  { key = "chatLines", label = "CHAT LINES", type = "choice", default = 4,
+    choices = { { "2", 2 }, { "3", 3 }, { "4", 4 }, { "6", 6 } } },
+  { key = "chatAlwaysOn", label = "CHAT ALWAYS ON", type = "toggle", default = false },
+  { key = "chatOverlay", label = "CHAT OVERLAY", type = "toggle", default = true },
+  { key = "emoteBar", label = "EMOTE BAR", type = "toggle", default = true },
+  { key = "geekStats", label = "GEEK STATS", type = "toggle", default = false },
+  { key = "autoConnect", label = "AUTO-CONNECT", type = "toggle", default = true },
+})
+
 -- The v0.3.3 input mystery is solved (the cursor moved; its ">" glyph
 -- doesn't exist in the charmap and drew as a space), so the readout is
 -- opt-in again.
 client.inputDebug = mod.save:get("input_debug", false)
--- chat-box panel tuning (the "Chat box" settings view persists these)
-client.ovl = {
-  size = mod.save:get("ovl_size", 0.75),
-  bg = mod.save:get("ovl_bg", 0.85),
-  text = mod.save:get("ovl_text", 1.0),
-  lines = mod.save:get("ovl_lines", 4),
-  -- 0/1 rather than a real boolean: cbStep's step-cycling in screens.lua is
-  -- numeric-comparison based (matches every other row), so this stays a
-  -- number and overlay.lua treats it as truthy via == 1.
-  alwaysOn = mod.save:get("ovl_alwaysOn", 0),
-}
 
 -- Default server: the official beta VPS, with its identity pin baked in so
 -- the encrypted tunnel verifies out of the box (the pin is the server's
@@ -97,13 +108,12 @@ do
   end
 end
 
-client.geekStats = mod.save:get("geek_stats", false)
-
 installScreen(mod, client)
 Overlay.install(mod, client)
 Nametags.install(mod, client)
 GEN1MMO_INCLUDE("src/geekstats.lua").install(mod, client)
 GEN1MMO_INCLUDE("src/achievements.lua").install(mod, client)
+local emoteBar = GEN1MMO_INCLUDE("src/emotebar.lua").install(mod, client)
 
 -- Tone sheets, twice-guaranteed: the install transform derives them, and
 -- Tonegen regenerates any sheet that STILL cannot load, at runtime, from
@@ -200,7 +210,7 @@ end
 -- the menu opts back out.
 local triedAutoConnect = false
 mod.events:on("map.entered", function()
-  if triedAutoConnect or not client.autoConnect then return end
+  if triedAutoConnect or not mod.options:get("autoConnect") then return end
   triedAutoConnect = true
   if client.state == "offline" then
     client:connectStored(client.host, client.port)
@@ -230,7 +240,7 @@ local function pollReconnect()
     reconnectBackoff = 5 -- fully online: reset the backoff for next time
     return
   end
-  if not client.autoConnect or not client:storedLoginName() then return end
+  if not mod.options:get("autoConnect") or not client:storedLoginName() then return end
   local now = love.timer.getTime()
 
   if client.state == "offline" then
@@ -255,41 +265,52 @@ end
 -- Touch: taps AND drags that miss the on-screen controls are routed here.
 -- When the GEN1MMO screen is open, map them into 160x144 canvas space and
 -- let it select items / letters / scroll directly -- so phone players are
--- never stranded by a controller whose d-pad doesn't drive menus. Additive:
--- buttons still work.
+-- never stranded by a controller whose d-pad doesn't drive menus. Over the
+-- live overworld instead, the same tap is offered to the quick emote bar
+-- (src/emotebar.lua) before falling through to the engine's own touch
+-- controls. Additive either way: buttons still work.
 mod.hooks:wrap("input.pointer", function(next, game, ev)
+  local consumed = false
   pcall(function()
     if not ev then return end
     local top = game.stack and game.stack:top()
     local vp = client._vp
-    if not (top and top.screenId == "Gen1MMO"
-       and vp and vp.gameWidth and vp.gameWidth > 0 and vp.gameHeight and vp.gameHeight > 0) then
+    local vpOk = vp and vp.gameWidth and vp.gameWidth > 0
+      and vp.gameHeight and vp.gameHeight > 0
+    if top and top.screenId == "Gen1MMO" and vpOk then
+      local scaleY = vp.gameHeight / 144
+      if ev.phase == "pressed" and top.onTap then
+        local cx = (ev.x - (vp.gameX or 0)) / (vp.gameWidth / 160)
+        local cy = (ev.y - (vp.gameY or 0)) / scaleY
+        top:onTap(cx, cy)
+      elseif ev.phase == "moved" and top.onDrag then
+        top:onDrag((ev.dy or 0) / scaleY)
+      elseif ev.phase == "released" and top.onRelease then
+        local cx = (ev.x - (vp.gameX or 0)) / (vp.gameWidth / 160)
+        local cy = (ev.y - (vp.gameY or 0)) / scaleY
+        top:onRelease(cx, cy)
+      end
       return
     end
-    local scaleY = vp.gameHeight / 144
-    if ev.phase == "pressed" and top.onTap then
+    if ev.phase == "pressed" and vpOk then
       local cx = (ev.x - (vp.gameX or 0)) / (vp.gameWidth / 160)
-      local cy = (ev.y - (vp.gameY or 0)) / scaleY
-      top:onTap(cx, cy)
-    elseif ev.phase == "moved" and top.onDrag then
-      top:onDrag((ev.dy or 0) / scaleY)
-    elseif ev.phase == "released" and top.onRelease then
-      local cx = (ev.x - (vp.gameX or 0)) / (vp.gameWidth / 160)
-      local cy = (ev.y - (vp.gameY or 0)) / scaleY
-      top:onRelease(cx, cy)
+      local cy = (ev.y - (vp.gameY or 0)) / (vp.gameHeight / 144)
+      consumed = emoteBar.tap(game, cx, cy)
     end
   end)
+  if consumed then return end
   return next(game, ev)
 end)
 
--- Start-menu row that opens Gen1MMO: this release ships the classic overlay
--- (play normally, connect from this menu, see other trainers in your world).
--- The dedicated ONLINE title-menu mode with server-side characters lives on
--- the `online-mode` branch for a later release.
+-- Start-menu rows for the two things worth a direct tap: sending a message
+-- and sending an emote. Everything else Gen1MMO does (login, friends,
+-- whisper, look, server info, disconnect) lives under OPTION now (see the
+-- ui.options.rows hook below) -- the same place any other mod's own screen
+-- is one tap from, not a special branch of the Start Menu.
 mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
   pcall(function()
     -- Grouped with LINK, not the generic OPTION/MODS/QUIT tail: this IS a
-    -- way to connect to other players, same as vanilla LINK, so it reads
+    -- way to reach other players, same as vanilla LINK, so it reads
     -- naturally right below it rather than off among unrelated settings.
     -- LINK itself is conditional (vanilla: only shows with a non-empty
     -- party -- src/ui/StartMenu.lua), and Gen1MMO must NOT inherit that
@@ -302,11 +323,39 @@ mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
     for _, it in ipairs(items) do
       if it.label == "LINK" then hasLink = true; break end
     end
-    local row = { label = "GEN1MMO", onSelect = function() mod.ui.push(game, "Gen1MMO") end }
-    if hasLink then mod.ui.insertAfter(items, "LINK", row)
-    else mod.ui.insertBefore(items, "OPTION", row) end
+    local chatRow = { label = "CHAT", onSelect = function()
+      client._openChatDirect = true
+      mod.ui.push(game, "Gen1MMO")
+    end }
+    local emoteRow = { label = "EMOTE", onSelect = function()
+      client._openEmoteDirect = true
+      mod.ui.push(game, "Gen1MMO")
+    end }
+    if hasLink then
+      mod.ui.insertAfter(items, "LINK", chatRow)
+      mod.ui.insertAfter(items, "CHAT", emoteRow)
+    else
+      mod.ui.insertBefore(items, "OPTION", chatRow)
+      mod.ui.insertBefore(items, "OPTION", emoteRow)
+    end
   end)
   return next(game, items)
+end)
+
+-- The rest of Gen1MMO (login, friends, whisper, look, server info,
+-- disconnect) is one row in the vanilla Options screen -- the standard spot
+-- a mod's own screen is reached from (alongside MODS, CONTROLS), not a
+-- special Start Menu branch. The per-mod settings above show up separately,
+-- under Options > MODS > GEN1MMO > OPTIONS.., same as any other mod.
+mod.hooks:wrap("ui.options.rows", function(next, game, rows)
+  pcall(function()
+    rows[#rows + 1] = {
+      id = "gen1mmo_open", label = "GEN1MMO",
+      value = function() return "OPEN" end,
+      activate = function(g) mod.ui.push(g, "Gen1MMO") end,
+    }
+  end)
+  return next(game, rows)
 end)
 
 -- Per-frame pump: render.zones runs every overworld frame. We do the network
