@@ -113,23 +113,33 @@ function Overlay.install(mod, client)
       local bgA = cfg.bg == nil and 0.85 or cfg.bg
       local textA = cfg.text or 1.0
       local maxLines = cfg.lines or 4
+      -- "Always" in Chat box settings: keeps the last maxLines messages up
+      -- permanently instead of fading after SHOW_SECONDS. Size/opacity above
+      -- still fully apply -- this only removes the timer, not the tuning.
+      local alwaysOn = cfg.alwaysOn == 1
 
       local now = love.timer.getTime()
       local visible = {}
-      for _, e in ipairs(recent) do
-        if now - e.at < SHOW_SECONDS then visible[#visible + 1] = e end
+      if alwaysOn then
+        local n = #recent
+        for i = math.max(1, n - maxLines + 1), n do visible[#visible + 1] = recent[i] end
+      else
+        for _, e in ipairs(recent) do
+          if now - e.at < SHOW_SECONDS then visible[#visible + 1] = e end
+        end
+        while #visible > maxLines do table.remove(visible, 1) end
       end
-      while #visible > maxLines do table.remove(visible, 1) end
       if #visible == 0 then return end
 
       -- Expand each visible message into its wrapped rows, carrying the SAME
       -- fade alpha (keyed to the message's own arrival time) across every row
       -- it produces, so a long message fades as one unit, not row-by-row.
       -- Nothing is ever cut off; a wrapped message just takes more rows.
+      -- In "Always" mode there is no fade at all: full opacity, permanently.
       local function rowsFor(list)
         local rows = {}
         for _, e in ipairs(list) do
-          local a = math.min(1, (SHOW_SECONDS - (now - e.at)) / FADE_SECONDS)
+          local a = alwaysOn and 1 or math.min(1, (SHOW_SECONDS - (now - e.at)) / FADE_SECONDS)
           local text = (e.text:gsub("%*", "\194\183")) -- censor "*" has no tile; mid-dot does
           for _, wline in ipairs(wrapLine(text, MAX_CHARS)) do
             rows[#rows + 1] = { text = wline, a = a }

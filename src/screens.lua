@@ -402,6 +402,10 @@ return function(mod, client)
         { "Text",   "text",  { 0.4, 0.6, 0.8, 1.0 },          "%d%%" },
         { "Backgr", "bg",    { 0, 0.25, 0.5, 0.7, 0.85, 1.0 }, "%d%%" },
         { "Lines",  "lines", { 2, 3, 4, 6 },                   "%d" },
+        -- ON keeps the last N messages up permanently (no 6s fade-out) --
+        -- Size/Text/Backgr above still apply, so it is still opacity- and
+        -- size-controlled, just never disappears on its own.
+        { "Always", "alwaysOn", { 0, 1 } },
       }
       self.cbIndex = 1
 
@@ -619,8 +623,7 @@ return function(mod, client)
           end
           self.view = "menu" -- tap outside the rows backs out
         elseif self.view == "chat" then
-          -- top edge pages back through history, bottom edge pages forward;
-          -- anywhere else opens Say (the pre-scroll behavior)
+          -- top edge pages back through history, bottom edge pages forward
           local maxOff = math.max(0, #buildChatRows() - CHAT_VISIBLE)
           if cy <= 16 and maxOff > 0 then
             self.chatOff = math.min(self.chatOff + CHAT_VISIBLE, maxOff)
@@ -630,7 +633,13 @@ return function(mod, client)
             self.chatOff = math.max(self.chatOff - CHAT_VISIBLE, 0)
             return
           end
-          self:enterText("SAY:", false, function(t) client:say(self.scope, t) end)
+          -- Anywhere else: do NOT act yet -- this press might be the START
+          -- of a drag-to-scroll rather than a tap to open Say. onRelease
+          -- (below) decides which, based on whether onDrag saw real
+          -- movement in between. Acting here (the old behavior) would open
+          -- Say on every drag's very first frame, before it could move.
+          self._chatDragAccum = 0
+          self._chatDragMoved = false
         elseif self.view == "look" then
           for i, c in ipairs(CATS) do
             local y = 22 + (i - 1) * 13
@@ -644,6 +653,39 @@ return function(mod, client)
             end
           end
         end
+      end
+
+      --- Touch drag-to-scroll for the Chat log. cdy is the frame's vertical
+      --- movement in CANVAS units (same 160x144 space as onTap's cx/cy) --
+      --- main.lua converts LOVE window pixels before calling this. Standard
+      --- mobile chat convention: dragging DOWN reveals OLDER messages
+      --- (chatOff increases), matching the d-pad UP button's existing
+      --- meaning and how pull-to-see-history already works elsewhere.
+      function self:onDrag(cdy)
+        if self.view ~= "chat" then return end
+        self._chatDragAccum = (self._chatDragAccum or 0) + cdy
+        if math.abs(self._chatDragAccum) > 4 then self._chatDragMoved = true end
+        local ROWH = 12 -- matches drawChat's row spacing
+        local maxOff = math.max(0, #buildChatRows() - CHAT_VISIBLE)
+        while self._chatDragAccum >= ROWH do
+          self.chatOff = math.min(self.chatOff + 1, maxOff)
+          self._chatDragAccum = self._chatDragAccum - ROWH
+        end
+        while self._chatDragAccum <= -ROWH do
+          self.chatOff = math.max(self.chatOff - 1, 0)
+          self._chatDragAccum = self._chatDragAccum + ROWH
+        end
+      end
+
+      --- Fires on touch release. Only acts on the Chat view's deferred
+      --- middle-of-screen tap (see onTap): opens Say, but ONLY if the
+      --- gesture never turned into a drag -- a genuine tap-and-release,
+      --- not a scroll that happened to end mid-screen.
+      function self:onRelease(cx, cy)
+        if self.view == "chat" and not self._chatDragMoved and cy > 16 and cy < 122 then
+          self:enterText("SAY:", false, function(t) client:say(self.scope, t) end)
+        end
+        self._chatDragMoved = false
       end
 
       -- ----- draw per view
@@ -893,14 +935,35 @@ return function(mod, client)
         for i, row in ipairs(CHATBOX_ROWS) do
           local v = client.ovl[row[2]] or row[3][1]
           local shown = row[2] == "lines" and tostring(v)
+            or row[2] == "alwaysOn" and (v == 1 and "ON" or "OFF")
             or (tostring(math.floor(v * 100 + 0.5)) .. " pct")
           local y = 28 + (i - 1) * 14
           Font.draw(row[1] .. ": " .. shown, 16, y)
           if self.cbIndex == i then Font.drawCode(Theme.cursor, 8, y) end
         end
+        -- ACTUAL live preview: a real panel at the current size/opacity, the
+        -- same way overlay.lua draws its own (lg.scale around Font.draw --
+        -- glyph tiles are black ink, so setColor's alpha is what fades them,
+        -- identical mechanism, just static here instead of time-based).
+        -- The old version only ever drew static text and called it "live" --
+        -- caught in testing; this one actually moves when you press L/R.
+        local sizePct = client.ovl.size or 0.75
+        local bgA = client.ovl.bg == nil and 0.85 or client.ovl.bg
+        local textA = client.ovl.text or 1.0
+        local pw, ph = 144 * sizePct, 16 * sizePct
+        local px, py = (160 - pw) / 2, 94
+        local lg = love.graphics
+        lg.setColor(1, 1, 1, bgA)
+        lg.rectangle("fill", px, py, pw, ph)
+        lg.push("all")
+        lg.translate(px + 2, py + 2)
+        lg.scale(sizePct, sizePct)
+        lg.setColor(0, 0, 0, textA)
+        Font.draw("Sample chat line", 0, 0)
+        lg.pop()
+        lg.setColor(1, 1, 1, 1)
+
         Font.draw("L/R:adjust A/B:back", 8, 116)
-        -- live preview of the current opacity/size mix
-        Font.draw("Sample chat line", 8, 132)
       end
 
       local function drawKey(code)

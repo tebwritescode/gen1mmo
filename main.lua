@@ -58,6 +58,10 @@ client.ovl = {
   bg = mod.save:get("ovl_bg", 0.85),
   text = mod.save:get("ovl_text", 1.0),
   lines = mod.save:get("ovl_lines", 4),
+  -- 0/1 rather than a real boolean: cbStep's step-cycling in screens.lua is
+  -- numeric-comparison based (matches every other row), so this stays a
+  -- number and overlay.lua treats it as truthy via == 1.
+  alwaysOn = mod.save:get("ovl_alwaysOn", 0),
 }
 
 -- Default server: the official beta VPS, with its identity pin baked in so
@@ -248,21 +252,31 @@ local function pollReconnect()
   end
 end
 
--- Touch: a tap that misses the on-screen controls is routed here. When the
--- GEN1MMO screen is open, map the tap into 160x144 canvas space and let it
--- select items / letters directly -- so phone players are never stranded by
--- a controller whose d-pad doesn't drive menus. Additive: buttons still work.
+-- Touch: taps AND drags that miss the on-screen controls are routed here.
+-- When the GEN1MMO screen is open, map them into 160x144 canvas space and
+-- let it select items / letters / scroll directly -- so phone players are
+-- never stranded by a controller whose d-pad doesn't drive menus. Additive:
+-- buttons still work.
 mod.hooks:wrap("input.pointer", function(next, game, ev)
   pcall(function()
-    if ev and ev.phase == "pressed" then
-      local top = game.stack and game.stack:top()
-      local vp = client._vp
-      if top and top.screenId == "Gen1MMO" and top.onTap
-         and vp and vp.gameWidth and vp.gameWidth > 0 and vp.gameHeight and vp.gameHeight > 0 then
-        local cx = (ev.x - (vp.gameX or 0)) / (vp.gameWidth / 160)
-        local cy = (ev.y - (vp.gameY or 0)) / (vp.gameHeight / 144)
-        top:onTap(cx, cy)
-      end
+    if not ev then return end
+    local top = game.stack and game.stack:top()
+    local vp = client._vp
+    if not (top and top.screenId == "Gen1MMO"
+       and vp and vp.gameWidth and vp.gameWidth > 0 and vp.gameHeight and vp.gameHeight > 0) then
+      return
+    end
+    local scaleY = vp.gameHeight / 144
+    if ev.phase == "pressed" and top.onTap then
+      local cx = (ev.x - (vp.gameX or 0)) / (vp.gameWidth / 160)
+      local cy = (ev.y - (vp.gameY or 0)) / scaleY
+      top:onTap(cx, cy)
+    elseif ev.phase == "moved" and top.onDrag then
+      top:onDrag((ev.dy or 0) / scaleY)
+    elseif ev.phase == "released" and top.onRelease then
+      local cx = (ev.x - (vp.gameX or 0)) / (vp.gameWidth / 160)
+      local cy = (ev.y - (vp.gameY or 0)) / scaleY
+      top:onRelease(cx, cy)
     end
   end)
   return next(game, ev)
