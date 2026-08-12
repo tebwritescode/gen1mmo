@@ -79,6 +79,10 @@ Report bad actors in-game; repeat offenders forfeit their name.
 
 ## Status
 
+Multiplayer (connecting, chat, sync) is confirmed working on Desktop and
+Android. iOS support is still being verified — the overworld, looks, and
+everything offline work there today.
+
 | | |
 |---|---|
 | Live player sync, nametags, walk-through collision | ✅ |

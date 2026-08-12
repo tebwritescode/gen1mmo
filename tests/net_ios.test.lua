@@ -2,23 +2,25 @@
 --
 --   luajit tests/net_ios.test.lua
 --
--- WHY THIS FILE EXISTS. iOS (Phosphorus) has no LuaSocket -- confirmed by
--- cross-referencing SaveSync's own iOS transport work (a sibling gen1recomp
--- mod): its src/http.lua says outright "Phosphor's iOS build has no
--- love.thread [and] there is no curl to spawn and no bridge exported", and
--- it had to add lua-https as an alternate transport because raw LuaSocket
--- sockets were never on that platform to begin with.
+-- WHY THIS FILE EXISTS. A player on iOS (Phosphorus) hit "networking
+-- unavailable (luasocket missing)". UNVERIFIED against Phosphorus itself --
+-- not yet reproduced or confirmed there -- but a sibling gen1recomp mod's
+-- code (SaveSync's src/http.lua) carries a comment claiming "Phosphor's iOS
+-- build has no love.thread [and] there is no curl to spawn and no bridge
+-- exported", i.e. the same shape of gap. Treat that as a lead, not a fact:
+-- it is that mod's own account of its own platform, not something checked
+-- against this codebase or this device. No fix should be built on it until
+-- it is actually confirmed against Phosphorus.
 --
--- gen1mmo's protocol is a PERSISTENT bidirectional TCP stream (newline-JSON
--- frames, non-blocking, polled every frame, with its own encrypted tunnel
--- handshake), not periodic REST calls -- so lua-https (a one-shot
--- synchronous HTTPS request/response client) cannot be swapped in the way
--- SaveSync swapped it for GitHub/Dropbox calls. This test locks in that the
--- ABSENCE of LuaSocket degrades SAFELY (no crash, a real status message, no
--- half-connected state) rather than proving the game can connect on iOS --
--- it cannot, right now, and fixing that is a transport-design question
--- (long-polling or WebSocket-over-lua-https, or similar), not a bug in
--- this failure path.
+-- gen1mmo's protocol is also a PERSISTENT bidirectional TCP stream
+-- (newline-JSON frames, non-blocking, polled every frame, with its own
+-- encrypted tunnel handshake), not periodic REST calls -- so even if the
+-- lead above holds up, SaveSync's lua-https swap (a one-shot synchronous
+-- HTTPS request/response client) would not be a drop-in fix here. This
+-- test only locks in that the ABSENCE of LuaSocket degrades SAFELY (no
+-- crash, a real status message, no half-connected state); it does NOT
+-- claim to explain why the socket is absent, and does not attempt a fix.
+-- A real fix needs the cause confirmed on-device first.
 
 _G.GEN1MMO_INCLUDE = function(path)
   local chunk = assert(loadfile(path))
@@ -104,6 +106,75 @@ do
   local guard = src:match('if not self%.net:connect%(host, port%) then%s*\n%s*self%.status = self%.net%.error or "connection failed"%s*\n%s*self%.state = "offline"%s*\n%s*return false')
   ok("Client:connect still checks connect()'s return value before touching net state",
     guard ~= nil, "the exact guard text in src/client.lua moved or was removed")
+end
+
+-- 4. Net.transportAvailable(): the pure, instant capability check the
+--    Register/Log in pre-flight (src/screens.lua) runs before showing any
+--    UI that would let a player tap into a doomed connect. No I/O, so no
+--    mock socket needed -- only require("socket") itself is swapped.
+do
+  local succeeded, avail = pcall(withSocket, false, Net.transportAvailable)
+  ok("reports unavailable, and never throws, when socket is missing", succeeded, tostring(avail))
+  eq("and says so plainly", avail, false)
+
+  local succeeded2, avail2 = pcall(withSocket, true, Net.transportAvailable)
+  ok("reports available when socket IS present", succeeded2, tostring(avail2))
+  eq("and says so plainly", avail2, true)
+end
+
+-- 5. Net.probe(): a throwaway reachability check, separate from :connect,
+--    so a pre-flight probe never leaves a half-set-up Net instance behind.
+do
+  -- 5a. No transport at all: fails immediately with the same wording
+  --     Net:connect uses, no socket.tcp() ever touched.
+  local succeeded, reachable, err = pcall(withSocket, false, function()
+    return Net.probe("example.com", 7878, 1)
+  end)
+  ok("probe() never throws when socket is missing", succeeded, tostring(reachable))
+  eq("probe() reports unreachable", reachable, false)
+  ok("with the transport-missing reason", err ~= nil and err:find("missing", 1, true) ~= nil, tostring(err))
+
+  -- 5b. Transport present, connect succeeds: probe reports reachable AND
+  --     closes what it opened (a probe that leaks a live socket would
+  --     make every pre-flight check leave a connection behind).
+  local realRequire = require
+  local closed = false
+  _G.require = function(name)
+    if name == "socket" then
+      return { tcp = function()
+        return {
+          settimeout = function() end,
+          connect = function() return true end,
+          close = function() closed = true end,
+        }
+      end }
+    end
+    return realRequire(name)
+  end
+  local ok2, reachable2 = pcall(function() return Net.probe("192.0.2.1", 7878, 1) end)
+  _G.require = realRequire
+  ok("probe() succeeds through a mock socket that connects", ok2 and reachable2 == true, tostring(reachable2))
+  ok("and closes the probe socket instead of leaking it", closed)
+
+  -- 5c. Transport present, connect fails (unreachable host): a real
+  --     failure reason, not a false positive.
+  _G.require = function(name)
+    if name == "socket" then
+      return { tcp = function()
+        return {
+          settimeout = function() end,
+          connect = function() return nil, "timeout" end,
+          close = function() end,
+        }
+      end }
+    end
+    return realRequire(name)
+  end
+  local ok3, reachable3, err3 = pcall(function() return Net.probe("192.0.2.1", 7878, 1) end)
+  _G.require = realRequire
+  ok("probe() reports unreachable through a mock socket that fails to connect",
+    ok3 and reachable3 == false, tostring(reachable3))
+  ok("with a real reason naming the host", err3 ~= nil and err3:find("192.0.2.1", 1, true) ~= nil, tostring(err3))
 end
 
 print(string.format("\nRESULT %d passed, %d failed", pass, fail))

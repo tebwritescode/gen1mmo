@@ -7,6 +7,7 @@
 
 local Skins = GEN1MMO_INCLUDE("src/skins.lua")
 local Overlay = GEN1MMO_INCLUDE("src/overlay.lua") -- shared wrapLine: nothing gets cut off
+local Net = GEN1MMO_INCLUDE("src/net.lua") -- transportAvailable/probe: the logged-out pre-flight check
 
 local GRID = {
   "ABCDEFGHIJ",
@@ -61,6 +62,33 @@ return function(mod, client)
         -- Start Menu's EMOTE row: straight into the emote picker
         self.view = "emote"
         client._openEmoteDirect = nil
+      end
+
+      -- Pre-flight for the logged-out menu: never offer Register/Log in
+      -- when tapping them would just fail. Runs once per app session (not
+      -- per frame -- menuItems() below is called from draw/update/onTap
+      -- every frame, and a blocking probe belongs in exactly one place),
+      -- cached on client so every screen re-open sees the same verdict
+      -- until "Try again" clears it. transportAvailable() is a platform-
+      -- agnostic capability check (can THIS device open a socket at all
+      -- right now), not a guess about any specific app or platform.
+      local function checkNet()
+        local transport = Net.transportAvailable()
+        local reachable, reachErr = false, nil
+        if transport then
+          reachable, reachErr = Net.probe(client.host, client.port, 3)
+        end
+        client._netCheck = { transport = transport, reachable = reachable }
+        if not transport then
+          client.status = "No network transport on this device"
+        elseif not reachable then
+          client.status = reachErr or "Could not reach the server"
+        else
+          client.status = nil
+        end
+      end
+      if client.state ~= "playing" and not client._netCheck then
+        checkNet()
       end
 
       local input = game.input
@@ -122,6 +150,22 @@ return function(mod, client)
             { "Disconnect", function() client:disconnect() end },
           })
         else
+          -- Register/Log in only ever appear once the pre-flight check
+          -- (above, in new()) confirms this device can actually reach the
+          -- server -- tapping either one would otherwise just fail with
+          -- the same error a beat later, deeper in the flow.
+          local nc = client._netCheck
+          if nc and not nc.transport then
+            return withRecoveryRow {
+              { "No network here", function() end },
+              { "Try again", function() checkNet() end },
+            }
+          elseif nc and not nc.reachable then
+            return withRecoveryRow {
+              { "Can't reach it", function() end },
+              { "Try again", function() checkNet() end },
+            }
+          end
           return withRecoveryRow {
             { "Register (new)", function()
               self:enterText("USERNAME:", false, function(u)

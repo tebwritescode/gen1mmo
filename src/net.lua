@@ -33,6 +33,35 @@ function Net.new()
   }, Net)
 end
 
+--- Pure capability check: can this device even ATTEMPT a socket right now?
+--- No I/O, returns instantly -- meant to run before showing UI (Register/
+--- Log in) that would otherwise let a player tap into a doomed connect.
+--- Whatever platform gap causes this to fail, it fails the same way
+--- Net:connect already does below, just without opening anything first.
+function Net.transportAvailable()
+  local ok, socket = pcall(require, "socket")
+  return ok and socket ~= nil
+end
+
+--- A throwaway reachability check: open a real TCP connection and close it
+--- immediately, no protocol handshake. Separate from :connect so a
+--- pre-flight probe never leaves a half-set-up Net instance behind (no
+--- self.sock, no self.connected) for the caller to accidentally reuse.
+function Net.probe(host, port, timeout)
+  if not Net.transportAvailable() then
+    return false, "networking unavailable (luasocket missing)"
+  end
+  local socket = require("socket")
+  local sock = socket.tcp()
+  sock:settimeout(timeout or 3)
+  local success = sock:connect(host, tonumber(port))
+  pcall(function() sock:close() end)
+  if not success then
+    return false, "cannot reach server " .. tostring(host) .. ":" .. tostring(port)
+  end
+  return true
+end
+
 --- Blocking connect with a short timeout, then switch to non-blocking.
 function Net:connect(host, port)
   local ok, socket = pcall(require, "socket")
