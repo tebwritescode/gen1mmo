@@ -26,6 +26,10 @@ function Net.new()
     closed = false,
     error = nil,
     tunnel = nil, -- set after the handshake; then EVERY line both ways is sealed
+    lastRx = nil, -- last time we actually received a message; a real liveness
+                   -- signal (lastTx only proves WE tried to send, not that the
+                   -- connection is alive -- a suspended-then-resumed mobile
+                   -- socket can accept a write into a black hole for a while)
   }, Net)
 end
 
@@ -114,6 +118,7 @@ function Net:update()
       local msg = Json.decode(line)
       if type(msg) == "table" and msg.type then
         self.inbox[#self.inbox + 1] = msg
+        self.lastRx = love.timer and love.timer.getTime() or os.clock()
       end
     end
   end

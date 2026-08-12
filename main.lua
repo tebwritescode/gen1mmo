@@ -189,6 +189,55 @@ do
   end
 end
 
+-- Reconnect on resume: a mobile OS suspends networking while the app is
+-- backgrounded/asleep, so a socket that looked fine when you paused is often
+-- already dead by the time you come back -- and the one-shot boot auto-
+-- connect below never fires again to notice. love.focus/love.visible are the
+-- engine's own real signals for exactly this transition (its own main.lua
+-- already defines both, for input-reset and pause purposes); wrapped, never
+-- replaced, same pattern as the textinput/keypressed wraps above.
+do
+  local lastResumeAttempt = 0
+  -- 3x the client's own 30s ping interval: by 90s of total silence from the
+  -- server, on a connection the app THINKS is live, something is wrong --
+  -- most likely a zombie socket from OS-suspended networking, which can sit
+  -- accepting writes into a black hole for a while before erroring on its
+  -- own. Force a clean reconnect rather than trust it.
+  local STALE_AFTER = 90
+  local function tryResumeReconnect()
+    if not client.autoConnect then return end
+    if not client:storedLoginName() then return end -- never logged in: nothing to resume
+    local now = love.timer.getTime()
+    if now - lastResumeAttempt < 5 then return end -- debounce rapid focus flicker
+
+    if client.state == "offline" then
+      lastResumeAttempt = now
+      client:connectStored(client.host, client.port)
+    elseif client.state ~= "connecting" then
+      -- "looks" connected (greeted/authing/playing) -- but a resume is
+      -- exactly when that stops being trustworthy. lastRx is nil before the
+      -- first message ever arrives (a slow-but-genuine handshake, not a
+      -- zombie); only act once we have a real baseline to judge staleness by.
+      local net = client.net
+      if net and net.lastRx and (now - net.lastRx) > STALE_AFTER then
+        lastResumeAttempt = now
+        client:disconnect()
+        client:connectStored(client.host, client.port)
+      end
+    end
+  end
+  local prevFocus = love.focus
+  love.focus = function(f, ...)
+    if f then tryResumeReconnect() end -- true = focus GAINED (foregrounded)
+    if prevFocus then return prevFocus(f, ...) end
+  end
+  local prevVisible = love.visible
+  love.visible = function(v, ...)
+    if v then tryResumeReconnect() end -- true = visible again (unminimized/restored)
+    if prevVisible then return prevVisible(v, ...) end
+  end
+end
+
 -- Auto-connect: once someone has logged in before, later sessions go online
 -- on their own as soon as the world is up (stored verifier, never the
 -- password). One attempt per session; Disconnect / Forget login in the menu.
@@ -227,10 +276,23 @@ end)
 -- the `online-mode` branch for a later release.
 mod.hooks:wrap("ui.start_menu.items", function(next, game, items)
   pcall(function()
-    mod.ui.insertBefore(items, "OPTION", {
-      label = "GEN1MMO",
-      onSelect = function() mod.ui.push(game, "Gen1MMO") end,
-    })
+    -- Grouped with LINK, not the generic OPTION/MODS/QUIT tail: this IS a
+    -- way to connect to other players, same as vanilla LINK, so it reads
+    -- naturally right below it rather than off among unrelated settings.
+    -- LINK itself is conditional (vanilla: only shows with a non-empty
+    -- party -- src/ui/StartMenu.lua), and Gen1MMO must NOT inherit that
+    -- gate (you should be able to log in and chat before catching
+    -- anything), so: anchor after LINK when it's present, or fall back to
+    -- the previous OPTION-anchored spot when it's not (a missing anchor in
+    -- insertAfter would otherwise silently append past QUIT, which reads
+    -- like a broken/forgotten row on a fresh, party-less save).
+    local hasLink = false
+    for _, it in ipairs(items) do
+      if it.label == "LINK" then hasLink = true; break end
+    end
+    local row = { label = "GEN1MMO", onSelect = function() mod.ui.push(game, "Gen1MMO") end }
+    if hasLink then mod.ui.insertAfter(items, "LINK", row)
+    else mod.ui.insertBefore(items, "OPTION", row) end
   end)
   return next(game, items)
 end)
