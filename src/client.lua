@@ -687,7 +687,10 @@ function Client:_dispatch(m)
     end
     -- humans read these; codes are for machines
     local FRIENDLY = {
-      name_taken = "Name taken - pick another",
+      -- One account serves Gen1MMO AND SaveSync: a "taken" name during
+      -- registration is often the player's own SaveSync account, so say so
+      -- rather than sending them hunting for a new name they don't need.
+      name_taken = "Name taken. Yours from SaveSync? Just log in",
       look_alike = "Name too close to another player's",
       bad_proof = "Wrong password",
       bad_name = "Name: 3-16 letters, numbers, _",
