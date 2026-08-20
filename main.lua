@@ -21,6 +21,7 @@ function GEN1MMO_INCLUDE(path)
 end
 
 local Client = GEN1MMO_INCLUDE("src/client.lua")
+local AuthShare = GEN1MMO_INCLUDE("src/authshare.lua")
 local installScreen = GEN1MMO_INCLUDE("src/screens.lua")
 local Overlay = GEN1MMO_INCLUDE("src/overlay.lua")
 local Nametags = GEN1MMO_INCLUDE("src/nametags.lua")
@@ -399,7 +400,30 @@ mod.hooks:wrap("movement.collision", function(next, allowed, ctx)
   return allowed
 end)
 
+-- SHARED LOGIN. If Gen1MMO has no stored login but SaveSync (or a future
+-- mod on this server) is signed in, adopt its credential so logging into one
+-- mod logs into both. Runs at game.ready, once both mods have loaded.
+mod.events:on("game.ready", function()
+  if not client:storedLoginName() then
+    local cred = AuthShare.adopt(mod, "gen1mmo")
+    if cred then
+      pcall(function()
+        mod.save:set("auth_name", cred.name)
+        mod.save:set("auth_verifier", cred.verifier)
+      end)
+    end
+  end
+end)
+
 -- Publish the client for other mods / tooling. The loader reads mod.exports;
 -- a chunk's return value is NOT what dependents see (verified in-engine).
 mod.exports = client
+-- ...and publish this account for shared login. get() reads mod.save live, so
+-- a sign-in AFTER load is visible to a sibling that checks later.
+AuthShare.publish(mod, function()
+  local name = mod.save:get("auth_name", nil)
+  local verifier = mod.save:get("auth_verifier", nil)
+  if name and verifier then return { name = name, verifier = verifier } end
+  return nil
+end)
 return client
